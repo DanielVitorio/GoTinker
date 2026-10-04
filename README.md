@@ -1,308 +1,8 @@
 # Go Tinker
 
-Go Tinker is a standalone Windows desktop client for running Laravel Tinker code with a fast editor, project-aware autocomplete, persistent tabs, formatted output, history, snippets, and local SQLite persistence.
+Go Tinker is a standalone Windows desktop application for running Laravel Tinker code with a fast editor, project-aware autocomplete, persistent tabs, formatted output, execution history, snippets, and local SQLite persistence.
 
-The application uses a Go backend and a dedicated Electron desktop window. It does not open Opera, Chrome, or Edge and does not depend on Edge WebView2.
-
----
-
-# Português
-
-## Visão geral
-
-O Go Tinker transforma o fluxo do `php artisan tinker` em uma experiência visual de desktop.
-
-A interface mantém o editor PHP à esquerda e a resposta à direita, com suporte a múltiplas abas, autocomplete baseado no projeto Laravel, histórico, snippets e saída formatada.
-
-Na primeira execução, o aplicativo baixa o runtime desktop necessário e exibe uma tela própria com o progresso do download.
-
-## Principais recursos
-
-- Aplicativo Windows standalone
-- Janela própria, sem navegador externo
-- Sem dependência do Edge WebView2
-- Editor PHP com syntax highlighting
-- Autocomplete baseado no código do projeto Laravel
-- Sugestões para Models, Services, Controllers e classes em `app/`
-- Autocomplete de namespaces como `App\\Models\\`
-- Atalhos comuns do Eloquent
-- Autocomplete após `->` com métodos de instância, relacionamentos, atributos e campos `$fillable`
-- Múltiplas abas persistentes
-- Histórico de execuções
-- Snippets salvos
-- Persistência local em SQLite
-- Saída nos modos Auto, Terminal, JSON e Texto
-- Formatação automática de JSON
-- Navegação por projetos em diferentes discos
-- Backend Go executado sem janela de terminal
-- Serviço interno limitado a `127.0.0.1`
-
-## Primeira execução
-
-Quando o runtime desktop ainda não estiver instalado, o Go Tinker abre uma tela de configuração com:
-
-- percentual do download
-- tamanho baixado
-- tamanho total
-- velocidade de download
-- origem do download
-- etapa atual da instalação
-- verificação de integridade
-- extração do runtime
-
-O runtime é baixado apenas uma vez e é armazenado em:
-
-```text
-%LOCALAPPDATA%\GoTinker\runtime\44.5.1
-```
-
-Depois disso, o aplicativo abre diretamente nas próximas execuções.
-
-## Arquitetura
-
-```text
-GoTinker.exe
-│
-├── Bootstrap Go
-│   ├── tela de download
-│   ├── download do runtime
-│   ├── verificação SHA-256
-│   └── instalação local
-│
-├── GoTinkerRuntime.exe
-│   └── janela desktop Electron
-│
-└── gotinker-backend.exe
-    ├── Laravel runner
-    ├── indexador de projeto
-    ├── autocomplete
-    ├── navegador de arquivos
-    ├── workspace
-    └── SQLite
-```
-
-A janela desktop inicia o backend em uma porta livre de `127.0.0.1`. A porta não é exposta na interface e o processo é encerrado junto com o aplicativo.
-
-## Estrutura do projeto
-
-```text
-GoTinker/
-├── app/
-│   ├── backend/
-│   │   ├── web/
-│   │   │   ├── app.js
-│   │   │   ├── icon.svg
-│   │   │   ├── index.html
-│   │   │   └── styles.css
-│   │   ├── exec_other.go
-│   │   ├── exec_windows.go
-│   │   ├── http.go
-│   │   ├── main.go
-│   │   ├── project.go
-│   │   ├── runner.go
-│   │   ├── sqlite_other.go
-│   │   ├── sqlite_windows.go
-│   │   ├── state.go
-│   │   ├── types.go
-│   │   └── go.mod
-│   │
-│   └── desktop/
-│       ├── main.js
-│       └── package.json
-│
-├── assets/
-│   └── app.ico
-│
-├── bootstrap/
-│   ├── payload/
-│   ├── dialog_windows.go
-│   ├── install_windows.go
-│   ├── main_other.go
-│   ├── main_windows.go
-│   ├── payload_windows.go
-│   ├── progress_windows.go
-│   └── go.mod
-│
-├── dist/
-├── build.ps1
-├── clean.ps1
-├── run.ps1
-├── .gitignore
-└── README.md
-```
-
-## Requisitos de desenvolvimento
-
-- Windows 10 ou Windows 11 x64
-- Go 1.23 ou superior
-- PHP disponível no `PATH`
-- Um projeto Laravel com `artisan`
-
-Node.js não é necessário para gerar o executável bootstrap desta versão. O runtime Electron é baixado pelo próprio aplicativo na primeira execução.
-
-## Compilar
-
-No PowerShell:
-
-```powershell
-.\build.ps1
-```
-
-O build:
-
-1. valida o backend Go
-2. compila `gotinker-backend.exe`
-3. copia os arquivos da janela desktop para o payload
-4. valida o bootstrap
-5. gera o executável final
-
-Saída:
-
-```text
-dist\GoTinker.exe
-```
-
-## Executar
-
-```powershell
-.\run.ps1
-```
-
-Ou execute diretamente:
-
-```text
-dist\GoTinker.exe
-```
-
-## Limpar artefatos
-
-```powershell
-.\clean.ps1
-```
-
-## Dados locais
-
-O workspace do usuário é armazenado em:
-
-```text
-%APPDATA%\GoTinker\gotinker.sqlite
-```
-
-Esse banco contém informações como abas, snippets, histórico e estado da interface.
-
-O runtime desktop fica separado em:
-
-```text
-%LOCALAPPDATA%\GoTinker\runtime
-```
-
-## Uso com Laravel
-
-Selecione a pasta raiz do projeto que contém o arquivo:
-
-```text
-artisan
-```
-
-Exemplo:
-
-```php
-use App\Models\User;
-
-User::find(1);
-```
-
-Também é possível executar:
-
-```php
-App\Models\User::query()
-    ->latest()
-    ->limit(10)
-    ->get();
-```
-
-Quando a última instrução é uma expressão válida, o runner tenta retornar automaticamente o resultado para o painel de saída.
-
-## Atalhos
-
-| Atalho | Ação |
-|---|---|
-| `Ctrl + Enter` | Executar código |
-| `Ctrl + S` | Salvar snippet |
-| `Ctrl + Espaço` | Abrir autocomplete |
-| `Tab` | Aceitar sugestão |
-| `Enter` | Aceitar sugestão selecionada |
-
-## Segurança
-
-O Go Tinker executa código PHP dentro do projeto Laravel selecionado. Use somente em projetos e ambientes confiáveis.
-
-O backend interno:
-
-- escuta somente em `127.0.0.1`
-- usa uma porta livre escolhida na inicialização
-- não é exposto para a rede local
-- é finalizado quando a janela desktop é fechada
-
-A janela Electron usa isolamento de contexto, sandbox e não habilita integração Node no conteúdo da interface.
-
-## Solução de problemas
-
-### O aplicativo abria apenas na segunda tentativa
-
-A versão 1.3.2 reforça a abertura da janela no primeiro clique, aguarda o backend por mais tempo e possui fallback para exibir a janela mesmo quando o evento visual do runtime demora a ser disparado.
-
-
-### Erro “file is being used by another process”
-
-A versão 1.3.2 mantém o runtime Electron separado dos arquivos do aplicativo e melhora o autocomplete de cadeias Eloquent como `User::where()->`, incluindo métodos do Builder e atalhos para campos do Model.
-
-A versão 1.3 separa o runtime Electron dos arquivos do aplicativo. O launcher não sobrescreve mais `gotinker-backend.exe` a cada abertura. Isso evita o bloqueio de arquivo do Windows quando uma instância anterior ainda está encerrando.
-
-Os arquivos ficam em:
-
-```text
-%LOCALAPPDATA%\GoTinker\runtime\44.5.1
-%LOCALAPPDATA%\GoTinker\app\1.3.2
-```
-
-Você pode apagar versões antigas da pasta `runtime\44.5.1\resources\app` depois de fechar instâncias antigas do Go Tinker. A versão 1.3 não utiliza mais esse diretório para armazenar o aplicativo.
-
-
-
-### PHP não encontrado
-
-Confirme:
-
-```powershell
-php -v
-```
-
-Se o comando não funcionar, adicione o PHP ao `PATH` do Windows.
-
-### Projeto Laravel não reconhecido
-
-Confirme se a pasta selecionada contém:
-
-```text
-artisan
-composer.json
-app\
-```
-
-### Quero forçar um novo download do runtime
-
-Feche o Go Tinker e remova:
-
-```text
-%LOCALAPPDATA%\GoTinker\runtime\44.5.1
-```
-
-Na próxima execução a tela de download será exibida novamente.
-
-### O download falhou
-
-O bootstrap tenta mais de uma origem de download. Verifique firewall, proxy, VPN e acesso HTTPS do Windows.
+The application uses a Go backend and a dedicated Electron desktop window. It does not open Opera, Chrome, or Edge, and it does not depend on Edge WebView2.
 
 ---
 
@@ -310,79 +10,63 @@ O bootstrap tenta mais de uma origem de download. Verifique firewall, proxy, VPN
 
 ## Overview
 
-Go Tinker turns the `php artisan tinker` workflow into a desktop development experience.
+Go Tinker turns the `php artisan tinker` workflow into a visual desktop experience.
 
-The interface keeps the PHP editor on the left and the result panel on the right, with persistent tabs, Laravel-aware autocomplete, execution history, saved snippets, and formatted output.
+The application provides a PHP editor on the left and a formatted output panel on the right. It supports multiple persistent tabs, Laravel-aware autocomplete, Eloquent suggestions, execution history, saved snippets, JSON formatting, and local SQLite storage.
 
-On the first launch, the application downloads the required desktop runtime and shows a dedicated progress screen.
+On the first launch, Go Tinker downloads the desktop runtime and displays a dedicated progress screen. The runtime is downloaded only once and reused on future launches.
 
-## Main features
+## Features
 
-- Standalone Windows application
-- Dedicated desktop window
-- No external browser
+- Standalone Windows desktop application
+- Dedicated application window
+- No external browser window
 - No Edge WebView2 dependency
-- PHP editor with syntax highlighting
+- PHP syntax highlighting
 - Laravel project-aware autocomplete
-- Suggestions for Models, Services, Controllers, and classes inside `app/`
+- Autocomplete for classes inside `app/`
+- Suggestions for Models, Services, Controllers, and other application classes
 - Namespace completion such as `App\\Models\\`
-- Common Eloquent shortcuts
-- `->` autocomplete with instance methods, relationships, attributes, and `$fillable` fields
-- Persistent multi-tab workspace
-- Execution history
+- Eloquent static method suggestions after `::`
+- Eloquent Builder suggestions after chains such as `User::where()->`
+- Instance suggestions after `->`
+- `$fillable` attribute suggestions
+- Model property and cast suggestions
+- Model method and relationship suggestions
+- Persistent editor tabs
 - Saved snippets
-- Local SQLite persistence
+- Execution history
+- Local SQLite workspace
 - Auto, Terminal, JSON, and Text output modes
-- Automatic JSON formatting
-- Project browsing across multiple drives
-- Hidden Go backend with no console window
+- Automatic JSON detection and formatting
+- Project browser with access to available Windows drives
+- Hidden Go backend process
 - Internal service bound only to `127.0.0.1`
+- First-launch runtime download progress screen
 
-## First launch
+## Requirements
 
-If the desktop runtime is not installed yet, Go Tinker displays a setup window with:
+### To build Go Tinker
 
-- download percentage
-- downloaded size
-- total size
-- download speed
-- download source
-- current setup stage
-- integrity verification
-- runtime extraction
+- Windows 10 or Windows 11 x64
+- PowerShell 5.1 or PowerShell 7+
+- Go 1.23 or newer
 
-The runtime is downloaded only once and stored at:
+Node.js is not required to build this version.
 
-```text
-%LOCALAPPDATA%\GoTinker\runtime\44.5.1
+The Electron desktop runtime is downloaded automatically by Go Tinker on the first launch.
+
+### To use Go Tinker with Laravel
+
+- PHP available in `PATH`, or configured through `TINKER_PHP`
+- A Laravel project containing the `artisan` file
+- Laravel Tinker installed in the project
+
+Most Laravel applications already include Tinker. You can verify it with:
+
+```powershell
+php artisan tinker
 ```
-
-Future launches start the application directly.
-
-## Architecture
-
-```text
-GoTinker.exe
-│
-├── Go bootstrap
-│   ├── download screen
-│   ├── runtime download
-│   ├── SHA-256 verification
-│   └── local installation
-│
-├── GoTinkerRuntime.exe
-│   └── Electron desktop window
-│
-└── gotinker-backend.exe
-    ├── Laravel runner
-    ├── project indexer
-    ├── autocomplete
-    ├── file browser
-    ├── workspace
-    └── SQLite
-```
-
-The desktop window starts the backend on an available `127.0.0.1` port. The port is not exposed in the UI and the backend process is terminated when the application closes.
 
 ## Project structure
 
@@ -432,74 +116,183 @@ GoTinker/
 └── README.md
 ```
 
-## Development requirements
+## Architecture
 
-- Windows 10 or Windows 11 x64
-- Go 1.23 or newer
-- PHP available in `PATH`
-- A Laravel project containing `artisan`
+```text
+GoTinker.exe
+│
+├── Go bootstrap
+│   ├── first-launch installer
+│   ├── runtime download screen
+│   ├── SHA-256 verification
+│   ├── runtime extraction
+│   └── local application installation
+│
+├── GoTinkerRuntime.exe
+│   └── dedicated Electron desktop window
+│
+└── gotinker-backend.exe
+    ├── Laravel runner
+    ├── project indexer
+    ├── autocomplete engine
+    ├── project browser
+    ├── workspace manager
+    └── SQLite persistence
+```
 
-Node.js is not required to build this bootstrap executable. Electron is downloaded by the application during the first launch.
+The desktop application starts the Go backend on an available local port bound to `127.0.0.1`. The address is not exposed in the interface, and the backend is terminated with the application.
 
-## Build
+## Building from source
 
-Run in PowerShell:
+### 1. Install Go
+
+Install Go 1.23 or newer and confirm that it is available:
+
+```powershell
+go version
+```
+
+Expected example:
+
+```text
+go version go1.23.x windows/amd64
+```
+
+### 2. Open PowerShell in the project directory
+
+Example:
+
+```powershell
+cd C:\projects\GoTinker
+```
+
+The directory must contain:
+
+```text
+build.ps1
+app\
+bootstrap\
+assets\
+```
+
+### 3. Allow the build script if PowerShell blocks it
+
+If Windows prevents local PowerShell scripts from running, use this for the current terminal session:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+This affects only the current PowerShell process.
+
+### 4. Build the application
+
+Run:
 
 ```powershell
 .\build.ps1
 ```
 
-The build process:
+The script automatically:
 
-1. validates the Go backend
-2. builds `gotinker-backend.exe`
-3. copies the desktop files into the bootstrap payload
-4. validates the bootstrap
-5. builds the final executable
+1. creates the required payload and output directories
+2. validates the Go backend
+3. compiles `gotinker-backend.exe` for Windows x64
+4. copies the desktop application files into the bootstrap payload
+5. copies the application icon
+6. validates the bootstrap project
+7. compiles the final Windows GUI executable
 
-Output:
+The final executable is generated at:
 
 ```text
 dist\GoTinker.exe
 ```
 
-## Run
+### 5. Run the compiled application
+
+Run:
+
+```powershell
+.\dist\GoTinker.exe
+```
+
+Or use:
 
 ```powershell
 .\run.ps1
 ```
 
-Or launch directly:
-
-```text
-dist\GoTinker.exe
-```
+`run.ps1` automatically builds the project first when `dist\GoTinker.exe` does not exist.
 
 ## Clean build artifacts
+
+Run:
 
 ```powershell
 .\clean.ps1
 ```
 
-## Local data
+This removes the generated executable and the compiled backend payload.
 
-The user workspace is stored at:
+To perform a clean rebuild:
 
-```text
-%APPDATA%\GoTinker\gotinker.sqlite
+```powershell
+.\clean.ps1
+.\build.ps1
 ```
 
-This database stores information such as tabs, snippets, history, and interface state.
+## First launch
 
-The desktop runtime is stored separately at:
+When the Electron desktop runtime is not installed yet, Go Tinker displays a setup window with:
+
+- download percentage
+- downloaded size
+- total size
+- download speed
+- download source
+- verification status
+- installation status
+- extraction progress
+
+The runtime is stored in:
 
 ```text
 %LOCALAPPDATA%\GoTinker\runtime
 ```
 
-## Laravel usage
+The application files are installed separately under:
 
-Select the Laravel project root containing:
+```text
+%LOCALAPPDATA%\GoTinker\app
+```
+
+The runtime is reused between compatible Go Tinker versions and does not need to be downloaded on every launch.
+
+An internet connection is required only when the runtime still needs to be downloaded.
+
+## Local data
+
+The user workspace is stored in:
+
+```text
+%APPDATA%\GoTinker\gotinker.sqlite
+```
+
+The SQLite database stores information such as:
+
+- open tabs
+- tab content
+- saved snippets
+- execution history
+- selected project
+- interface state
+
+Removing or replacing the executable does not normally remove this workspace database.
+
+## Using a Laravel project
+
+Select the root directory of a Laravel project containing:
 
 ```text
 artisan
@@ -513,72 +306,151 @@ use App\Models\User;
 User::find(1);
 ```
 
-You can also run:
+You can also use Eloquent chains:
 
 ```php
-App\Models\User::query()
+use App\Models\User;
+
+User::query()
+    ->where('active', true)
     ->latest()
     ->limit(10)
     ->get();
 ```
 
-When the last statement is a valid expression, the runner attempts to return its value automatically to the output panel.
+Go Tinker attempts to return the value of the final valid expression automatically.
+
+## Autocomplete
+
+Go Tinker indexes the selected Laravel project's `app/` directory.
+
+Typing:
+
+```php
+use App\Models\
+```
+
+can suggest project models such as:
+
+```text
+App\Models\User
+App\Models\Contact
+App\Models\Conversation
+```
+
+Typing:
+
+```php
+User::
+```
+
+shows static and Eloquent suggestions.
+
+Typing:
+
+```php
+User::where()->
+```
+
+shows Builder methods and model-aware field shortcuts.
+
+Typing:
+
+```php
+$user = User::find(1);
+
+$user->
+```
+
+can show:
+
+- `$fillable` fields
+- model properties
+- casts
+- model methods
+- relationships
+- common Eloquent instance methods
 
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl + Enter` | Run code |
+| `Ctrl + Enter` | Execute code |
 | `Ctrl + S` | Save snippet |
 | `Ctrl + Space` | Open autocomplete |
-| `Tab` | Accept suggestion |
-| `Enter` | Accept selected suggestion |
+| `Tab` | Accept autocomplete suggestion |
+| `Enter` | Accept selected autocomplete suggestion |
+
+## PHP executable configuration
+
+By default, Go Tinker uses:
+
+```text
+php
+```
+
+from the Windows `PATH`.
+
+To use a specific PHP executable, set `TINKER_PHP` before launching Go Tinker:
+
+```powershell
+$env:TINKER_PHP = "C:\php\php.exe"
+.\dist\GoTinker.exe
+```
 
 ## Security
 
-Go Tinker executes PHP code inside the selected Laravel project. Use it only with trusted projects and environments.
+Go Tinker executes PHP code inside the selected Laravel project.
+
+Use it only with projects and environments you trust.
 
 The internal backend:
 
 - listens only on `127.0.0.1`
-- uses an available startup port
+- uses an available local port selected at startup
 - is not exposed to the local network
-- stops when the desktop window closes
+- is terminated with the desktop application
 
-The Electron window uses context isolation and sandboxing and does not enable Node integration inside the interface content.
+The Electron window uses context isolation and sandboxing and does not enable Node integration inside the application UI.
 
 ## Troubleshooting
 
-### “file is being used by another process” error
+### `go` is not recognized
 
-Version 1.3.2 keeps the Electron runtime separate from application files and improves autocomplete for Eloquent chains such as `User::where()->`, including Builder methods and Model field shortcuts.
+Install Go and reopen PowerShell.
 
-Version 1.2 separates the Electron runtime from the application files. The launcher no longer overwrites `gotinker-backend.exe` on every startup. This prevents Windows file locking errors while a previous instance is still shutting down.
+Verify:
 
-Files are stored in:
-
-```text
-%LOCALAPPDATA%\GoTinker\runtime\44.5.1
-%LOCALAPPDATA%\GoTinker\app\1.3.2
+```powershell
+go version
 ```
 
-Old files under `runtime\44.5.1\resources\app` can be removed after closing older Go Tinker instances. Version 1.2 no longer uses that directory for application files.
+### PowerShell blocks `build.ps1`
 
+Run:
 
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\build.ps1
+```
 
-### PHP is not available
+### PHP is not found
 
-Check:
+Verify:
 
 ```powershell
 php -v
 ```
 
-If the command fails, add PHP to the Windows `PATH`.
+If PHP is installed outside the `PATH`, configure:
 
-### Laravel project is not detected
+```powershell
+$env:TINKER_PHP = "C:\path\to\php.exe"
+```
 
-Verify that the selected folder contains:
+### Laravel project is not recognized
+
+Make sure the selected directory contains:
 
 ```text
 artisan
@@ -586,20 +458,502 @@ composer.json
 app\
 ```
 
-### Force a new runtime download
+### Runtime needs to be downloaded again
 
-Close Go Tinker and remove:
+Close all Go Tinker processes and remove:
 
 ```text
-%LOCALAPPDATA%\GoTinker\runtime\44.5.1
+%LOCALAPPDATA%\GoTinker\runtime
 ```
 
-The download screen will appear again on the next launch.
+Open Go Tinker again. The setup screen will download and reinstall the runtime.
 
-### Runtime download failed
+### Application or backend process remains open
 
-The bootstrap tries multiple download sources. Check Windows firewall, proxy, VPN, and HTTPS connectivity.
+Close Go Tinker normally first. If necessary, use Task Manager to terminate:
+
+```text
+GoTinkerRuntime.exe
+gotinker-backend.exe
+```
 
 ## License
 
-Use the project under the terms you define for your distribution. Third-party components keep their respective licenses.
+Add your project license here before distributing Go Tinker publicly.
+
+---
+
+# Português
+
+## Visão geral
+
+O Go Tinker transforma o fluxo do `php artisan tinker` em uma experiência visual de desktop.
+
+O aplicativo possui um editor PHP à esquerda e um painel de resposta formatada à direita. Ele oferece múltiplas abas persistentes, autocomplete baseado no projeto Laravel, sugestões do Eloquent, histórico de execuções, snippets salvos, formatação de JSON e persistência local em SQLite.
+
+Na primeira execução, o Go Tinker baixa o runtime desktop necessário e exibe uma tela própria com o progresso. O runtime é baixado apenas uma vez e reaproveitado nas próximas execuções.
+
+## Recursos
+
+- Aplicativo Windows standalone
+- Janela própria de aplicativo
+- Não abre navegador externo
+- Sem dependência do Edge WebView2
+- Syntax highlighting para PHP
+- Autocomplete baseado no projeto Laravel
+- Autocomplete para classes dentro de `app/`
+- Sugestões para Models, Services, Controllers e outras classes da aplicação
+- Autocomplete de namespaces como `App\\Models\\`
+- Sugestões estáticas e do Eloquent após `::`
+- Sugestões do Eloquent Builder em cadeias como `User::where()->`
+- Sugestões de instância após `->`
+- Sugestões de campos `$fillable`
+- Sugestões de propriedades e casts do Model
+- Sugestões de métodos e relacionamentos do Model
+- Abas persistentes
+- Snippets salvos
+- Histórico de execuções
+- Workspace local em SQLite
+- Modos de saída Auto, Terminal, JSON e Texto
+- Detecção e formatação automática de JSON
+- Navegador de projetos com acesso aos discos disponíveis no Windows
+- Backend Go sem janela de terminal
+- Serviço interno limitado a `127.0.0.1`
+- Tela de progresso para download do runtime na primeira execução
+
+## Requisitos
+
+### Para compilar o Go Tinker
+
+- Windows 10 ou Windows 11 x64
+- PowerShell 5.1 ou PowerShell 7+
+- Go 1.23 ou superior
+
+Node.js não é necessário para compilar esta versão.
+
+O runtime desktop do Electron é baixado automaticamente pelo Go Tinker na primeira execução.
+
+### Para usar o Go Tinker com Laravel
+
+- PHP disponível no `PATH` ou configurado por `TINKER_PHP`
+- Projeto Laravel contendo o arquivo `artisan`
+- Laravel Tinker instalado no projeto
+
+A maioria dos projetos Laravel já possui o Tinker. Você pode validar com:
+
+```powershell
+php artisan tinker
+```
+
+## Estrutura do projeto
+
+```text
+GoTinker/
+├── app/
+│   ├── backend/
+│   │   ├── web/
+│   │   │   ├── app.js
+│   │   │   ├── icon.svg
+│   │   │   ├── index.html
+│   │   │   └── styles.css
+│   │   ├── exec_other.go
+│   │   ├── exec_windows.go
+│   │   ├── http.go
+│   │   ├── main.go
+│   │   ├── project.go
+│   │   ├── runner.go
+│   │   ├── sqlite_other.go
+│   │   ├── sqlite_windows.go
+│   │   ├── state.go
+│   │   ├── types.go
+│   │   └── go.mod
+│   │
+│   └── desktop/
+│       ├── main.js
+│       └── package.json
+│
+├── assets/
+│   └── app.ico
+│
+├── bootstrap/
+│   ├── payload/
+│   ├── dialog_windows.go
+│   ├── install_windows.go
+│   ├── main_other.go
+│   ├── main_windows.go
+│   ├── payload_windows.go
+│   ├── progress_windows.go
+│   └── go.mod
+│
+├── dist/
+├── build.ps1
+├── clean.ps1
+├── run.ps1
+├── .gitignore
+└── README.md
+```
+
+## Arquitetura
+
+```text
+GoTinker.exe
+│
+├── Bootstrap Go
+│   ├── instalador da primeira execução
+│   ├── tela de download do runtime
+│   ├── verificação SHA-256
+│   ├── extração do runtime
+│   └── instalação local da aplicação
+│
+├── GoTinkerRuntime.exe
+│   └── janela desktop dedicada em Electron
+│
+└── gotinker-backend.exe
+    ├── executor Laravel
+    ├── indexador do projeto
+    ├── mecanismo de autocomplete
+    ├── navegador de projetos
+    ├── gerenciador do workspace
+    └── persistência SQLite
+```
+
+A aplicação desktop inicia o backend Go em uma porta local disponível vinculada a `127.0.0.1`. O endereço não é exibido na interface e o backend é encerrado junto com o aplicativo.
+
+## Como compilar o código
+
+### 1. Instale o Go
+
+Instale o Go 1.23 ou superior e confirme que ele está disponível:
+
+```powershell
+go version
+```
+
+Exemplo esperado:
+
+```text
+go version go1.23.x windows/amd64
+```
+
+### 2. Abra o PowerShell na pasta do projeto
+
+Exemplo:
+
+```powershell
+cd C:\projetos\GoTinker
+```
+
+A pasta deve conter:
+
+```text
+build.ps1
+app\
+bootstrap\
+assets\
+```
+
+### 3. Libere a execução do script se o PowerShell bloquear
+
+Se o Windows impedir a execução de scripts locais, use apenas para a sessão atual:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+Isso afeta somente o processo atual do PowerShell.
+
+### 4. Compile o aplicativo
+
+Execute:
+
+```powershell
+.\build.ps1
+```
+
+O script automaticamente:
+
+1. cria as pastas necessárias de payload e saída
+2. valida o backend em Go
+3. compila `gotinker-backend.exe` para Windows x64
+4. copia os arquivos da aplicação desktop para o payload do bootstrap
+5. copia o ícone do aplicativo
+6. valida o projeto bootstrap
+7. compila o executável final como aplicação Windows GUI
+
+O executável final será criado em:
+
+```text
+dist\GoTinker.exe
+```
+
+### 5. Execute o aplicativo compilado
+
+Execute:
+
+```powershell
+.\dist\GoTinker.exe
+```
+
+Ou use:
+
+```powershell
+.\run.ps1
+```
+
+O `run.ps1` executa o build automaticamente antes de abrir quando `dist\GoTinker.exe` ainda não existe.
+
+## Limpar arquivos de build
+
+Execute:
+
+```powershell
+.\clean.ps1
+```
+
+Esse comando remove o executável final gerado e o backend compilado dentro do payload.
+
+Para fazer um build limpo:
+
+```powershell
+.\clean.ps1
+.\build.ps1
+```
+
+## Primeira execução
+
+Quando o runtime desktop do Electron ainda não estiver instalado, o Go Tinker exibe uma janela de configuração contendo:
+
+- percentual do download
+- tamanho baixado
+- tamanho total
+- velocidade do download
+- origem do download
+- status da verificação
+- status da instalação
+- progresso da extração
+
+O runtime fica armazenado em:
+
+```text
+%LOCALAPPDATA%\GoTinker\runtime
+```
+
+Os arquivos da aplicação são instalados separadamente em:
+
+```text
+%LOCALAPPDATA%\GoTinker\app
+```
+
+O runtime pode ser reutilizado por versões compatíveis do Go Tinker e não precisa ser baixado novamente em toda execução.
+
+Uma conexão com a internet é necessária apenas quando o runtime ainda precisa ser baixado.
+
+## Dados locais
+
+O workspace do usuário é armazenado em:
+
+```text
+%APPDATA%\GoTinker\gotinker.sqlite
+```
+
+O banco SQLite armazena informações como:
+
+- abas abertas
+- conteúdo das abas
+- snippets salvos
+- histórico de execuções
+- projeto selecionado
+- estado da interface
+
+Excluir ou substituir o executável normalmente não remove esse banco do workspace.
+
+## Usando com um projeto Laravel
+
+Selecione a pasta raiz do projeto Laravel que contém:
+
+```text
+artisan
+```
+
+Exemplo:
+
+```php
+use App\Models\User;
+
+User::find(1);
+```
+
+Também é possível executar cadeias do Eloquent:
+
+```php
+use App\Models\User;
+
+User::query()
+    ->where('active', true)
+    ->latest()
+    ->limit(10)
+    ->get();
+```
+
+O Go Tinker tenta retornar automaticamente o valor da última expressão válida.
+
+## Autocomplete
+
+O Go Tinker indexa o diretório `app/` do projeto Laravel selecionado.
+
+Ao digitar:
+
+```php
+use App\Models\
+```
+
+podem aparecer sugestões como:
+
+```text
+App\Models\User
+App\Models\Contact
+App\Models\Conversation
+```
+
+Ao digitar:
+
+```php
+User::
+```
+
+o aplicativo mostra sugestões estáticas e do Eloquent.
+
+Ao digitar:
+
+```php
+User::where()->
+```
+
+o aplicativo mostra métodos do Builder e atalhos relacionados aos campos do Model.
+
+Ao digitar:
+
+```php
+$user = User::find(1);
+
+$user->
+```
+
+podem aparecer:
+
+- campos de `$fillable`
+- propriedades do Model
+- casts
+- métodos do Model
+- relacionamentos
+- métodos comuns de instância do Eloquent
+
+## Atalhos de teclado
+
+| Atalho | Ação |
+|---|---|
+| `Ctrl + Enter` | Executar código |
+| `Ctrl + S` | Salvar snippet |
+| `Ctrl + Espaço` | Abrir autocomplete |
+| `Tab` | Aceitar sugestão do autocomplete |
+| `Enter` | Aceitar sugestão selecionada |
+
+## Configurando o executável do PHP
+
+Por padrão, o Go Tinker utiliza:
+
+```text
+php
+```
+
+disponível no `PATH` do Windows.
+
+Para usar um PHP específico, configure `TINKER_PHP` antes de abrir o Go Tinker:
+
+```powershell
+$env:TINKER_PHP = "C:\php\php.exe"
+.\dist\GoTinker.exe
+```
+
+## Segurança
+
+O Go Tinker executa código PHP dentro do projeto Laravel selecionado.
+
+Use apenas com projetos e ambientes confiáveis.
+
+O backend interno:
+
+- escuta somente em `127.0.0.1`
+- usa uma porta local disponível escolhida na inicialização
+- não é exposto para a rede local
+- é encerrado junto com a aplicação desktop
+
+A janela Electron utiliza isolamento de contexto e sandbox e não habilita integração Node dentro da interface da aplicação.
+
+## Solução de problemas
+
+### `go` não é reconhecido
+
+Instale o Go e abra novamente o PowerShell.
+
+Valide com:
+
+```powershell
+go version
+```
+
+### O PowerShell bloqueia `build.ps1`
+
+Execute:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\build.ps1
+```
+
+### PHP não é encontrado
+
+Valide:
+
+```powershell
+php -v
+```
+
+Se o PHP estiver fora do `PATH`, configure:
+
+```powershell
+$env:TINKER_PHP = "C:\caminho\para\php.exe"
+```
+
+### O projeto Laravel não é reconhecido
+
+Confirme que a pasta selecionada contém:
+
+```text
+artisan
+composer.json
+app\
+```
+
+### Preciso baixar o runtime novamente
+
+Feche todos os processos do Go Tinker e remova:
+
+```text
+%LOCALAPPDATA%\GoTinker\runtime
+```
+
+Abra o Go Tinker novamente. A tela de configuração fará o download e a reinstalação do runtime.
+
+### O aplicativo ou backend ficou aberto
+
+Primeiro tente fechar o Go Tinker normalmente. Se necessário, encerre pelo Gerenciador de Tarefas:
+
+```text
+GoTinkerRuntime.exe
+gotinker-backend.exe
+```
+
+## Licença
+
+Adicione a licença do projeto aqui antes de distribuir o Go Tinker publicamente.
