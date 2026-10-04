@@ -1,0 +1,4 @@
+dist/
+bootstrap/payload/backend/*.exe
+*.test.exe
+.DS_Store
