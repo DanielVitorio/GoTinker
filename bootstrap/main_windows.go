@@ -14,7 +14,7 @@ import (
 
 const (
 	electronVersion = "44.5.1"
-	appVersion      = "1.3.10"
+	appVersion      = "1.3.12"
 )
 
 func main() {

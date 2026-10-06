@@ -211,6 +211,16 @@ func scanProject(project string) ([]completion, error) {
 			lowerPath := strings.ToLower(relSlash)
 			if strings.Contains(lowerPath, "app/models/") || strings.Contains(text, "extends Model") || strings.Contains(text, "extends Authenticatable") {
 				kind = "model"
+			} else if strings.Contains(lowerPath, "app/jobs/") {
+				kind = "job"
+			} else if strings.Contains(lowerPath, "app/events/") {
+				kind = "event"
+			} else if strings.Contains(lowerPath, "app/listeners/") {
+				kind = "listener"
+			} else if strings.Contains(lowerPath, "app/notifications/") {
+				kind = "notification"
+			} else if strings.Contains(lowerPath, "app/mail/") {
+				kind = "mail"
 			} else if strings.Contains(lowerPath, "app/http/controllers/") {
 				kind = "controller"
 			} else if strings.Contains(lowerPath, "app/services/") {
@@ -229,18 +239,20 @@ func scanProject(project string) ([]completion, error) {
 				}
 			}
 			signatures := map[string]methodSignature{}
-			for _, m := range methodSignatureRE.FindAllStringSubmatch(text, -1) {
-				if len(m) < 3 {
+			for _, match := range methodSignatureRE.FindAllStringSubmatchIndex(text, -1) {
+				if len(match) < 6 {
 					continue
 				}
-				name := m[1]
+				name := text[match[2]:match[3]]
 				if !methodSeen[name] {
 					methodSeen[name] = true
 					methods = append(methods, name)
 				}
-				signature := methodSignature{Name: name, Parameters: strings.Join(strings.Fields(m[2]), " ")}
-				if len(m) > 3 {
-					signature.ReturnType = m[3]
+				signature := methodSignature{Name: name, Parameters: strings.Join(strings.Fields(text[match[4]:match[5]]), " ")}
+				if len(match) >= 8 && match[6] >= 0 {
+					signature.ReturnType = text[match[6]:match[7]]
+				} else {
+					signature.ReturnType = documentedMethodReturn(text, match[0])
 				}
 				signatures[name] = signature
 			}
@@ -327,6 +339,24 @@ func scanProject(project string) ([]completion, error) {
 	return out, nil
 }
 
+func documentedMethodReturn(text string, methodOffset int) string {
+	prefix := text[:methodOffset]
+	docStart := strings.LastIndex(prefix, "/**")
+	docEnd := strings.LastIndex(prefix, "*/")
+	if docStart < 0 || docEnd < docStart {
+		return ""
+	}
+	between := strings.TrimSpace(prefix[docEnd+2:])
+	if between != "" && !strings.HasPrefix(between, "#[") {
+		return ""
+	}
+	match := docReturnRE.FindStringSubmatch(prefix[docStart:])
+	if len(match) < 2 {
+		return ""
+	}
+	return match[1]
+}
+
 func mergeTraitMethods(completions []completion) {
 	for depth := 0; depth < 6; depth++ {
 		byName := make(map[string]int, len(completions))
@@ -409,10 +439,12 @@ func completionRank(kind string) int {
 	switch kind {
 	case "model":
 		return 0
-	case "service":
+	case "job":
 		return 1
-	case "controller":
+	case "service":
 		return 2
+	case "controller":
+		return 3
 	default:
 		return 3
 	}

@@ -29,6 +29,7 @@ let acItems = [];
 let acIndex = 0;
 let acReplaceStart = 0;
 let acReplaceEnd = 0;
+let acImportClass = '';
 let persistTimer = null;
 let running = false;
 let toastTimer = null;
@@ -227,8 +228,15 @@ function trailingChainContext(before,pos){
     const expression=match[1]+'::'+match[2];
     const info=expressionChainInfo(expression);
     if(!info)return null;
-    const cls=resolveCompletion(info.classToken);const mode=cls?.kind==='package'&&info.calls.some(x=>x.toLowerCase()==='now')?'instance':info.mode;
-    return {type:'chain',classToken:info.classToken,mode,prefix,start:pos-prefix.length,end:pos};
+    const ownerToken=info.classToken;
+    const owner=resolveCompletion(ownerToken);
+    const lastCall=info.calls[info.calls.length-1];
+    const signature=owner?.methodDetails?.find(item=>item.name===lastCall);
+    const returnType=(signature?.returnType||'').split('|').map(type=>type.replace(/^\??\\?/,'').trim()).find(type=>resolveCompletion(type));
+    const returned=returnType?resolveCompletion(returnType):null;
+    const classToken=returned?.label||ownerToken;
+    const mode=returned?'instance':owner?.kind==='package'&&info.calls.some(x=>x.toLowerCase()==='now')?'instance':info.mode;
+    return {type:'chain',classToken,importClassToken:ownerToken,mode,prefix,start:pos-prefix.length,end:pos};
 }
 function completionContext(){
     const pos=els.code.selectionStart||0;
@@ -252,9 +260,9 @@ function classCandidates(prefix){
     const src=[...completions,...commonSymbols];
     const imports=importedClasses(els.code.value);
     const found=src.filter(x=>{const l=(x.label||'').toLowerCase(),s=(x.shortName||'').toLowerCase();return prefix.includes('\\')?l.startsWith(p):s.startsWith(p)||l.startsWith(p)}).slice(0,30).map(x=>({...x,replaceText:x.insert||x.label}));
-    const firstPackage=found.find(item=>item.kind==='package');
-    for(const item of found){if(item.kind!=='package')continue;const imported=[...imports].find(([,fqcn])=>fqcn.toLowerCase()===item.label.toLowerCase());if(imported)item.replaceText=imported[0];else{item.importClass=item.label;item.replaceText=item.shortName;}}
-    if(firstPackage){const imported=[...imports].some(([,fqcn])=>fqcn.toLowerCase()===firstPackage.label.toLowerCase());if(!imported)found.push({label:'Importar '+firstPackage.shortName,insert:'',kind:'import',detail:firstPackage.label,importClass:firstPackage.label,shortName:firstPackage.shortName,replaceText:''});}
+    const firstImportable=found.find(item=>item.namespace||item.kind==='package');
+    for(const item of found){if(!item.namespace&&item.kind!=='package')continue;const imported=[...imports].find(([,fqcn])=>fqcn.toLowerCase()===item.label.toLowerCase());if(imported)item.replaceText=imported[0];else{item.importClass=item.label;item.replaceText=item.shortName;}}
+    if(firstImportable){const imported=[...imports].some(([,fqcn])=>fqcn.toLowerCase()===firstImportable.label.toLowerCase());if(!imported)found.push({label:'Importar '+firstImportable.shortName,insert:'',kind:'import',detail:firstImportable.label,importClass:firstImportable.label,shortName:firstImportable.shortName,replaceText:''});}
     return found;
 }
 function methodLabel(method,completion){
@@ -263,7 +271,7 @@ function methodLabel(method,completion){
     return `${method}(${signature.parameters||''})${signature.returnType?' : '+signature.returnType:''}`;
 }
 function importClassFor(classToken,completion){
-    if(completion?.kind!=='package')return '';
+    if(!completion?.namespace&&completion?.kind!=='package')return '';
     const imports=importedClasses(els.code.value);
     const resolved=resolveCompletion(classToken);
     const fqcn=resolved?.label||completion.label;
@@ -332,7 +340,7 @@ function updateAutocomplete(force=false){
     else if(ctx.type==='chain')items=chainCandidates(ctx.classToken,ctx.mode,ctx.prefix);
     else items=classCandidates(ctx.prefix);
     if(!items.length){closeAutocomplete();return;}
-    acItems=items;acIndex=0;acReplaceStart=ctx.start;acReplaceEnd=ctx.end;renderAutocomplete();positionAutocomplete();
+    acItems=items;acIndex=0;acReplaceStart=ctx.start;acReplaceEnd=ctx.end;const importToken=ctx.importClassToken||ctx.classToken;acImportClass=importToken?importClassFor(importToken,resolveCompletion(importToken)):'';renderAutocomplete();positionAutocomplete();
 }
 function renderAutocomplete(){
     els.autocomplete.innerHTML='';acItems.slice(0,12).forEach((item,i)=>{const b=document.createElement('button');b.type='button';b.className='ac-item'+(i===acIndex?' active':'');b.dataset.i=i;b.title=`${item.label}${item.detail?'\n'+item.detail:''}`;b.innerHTML=`<span class="ac-kind ${escapeHTML(item.kind||'class')}">${escapeHTML(item.kind||'class')}</span><span class="ac-main"><div class="ac-label">${escapeHTML(item.label)}</div><div class="ac-detail">${escapeHTML(item.detail||'')}</div></span>`;b.addEventListener('mousedown',e=>{e.preventDefault();acceptAutocomplete(i)});els.autocomplete.appendChild(b);});els.autocomplete.classList.add('open');
@@ -340,7 +348,7 @@ function renderAutocomplete(){
 function positionAutocomplete(){
     const pos=els.code.selectionStart||0,before=els.code.value.slice(0,pos),lines=before.split('\n'),line=lines.length-1,col=lines[lines.length-1].length;const lh=21.67,cw=7.58;let left=15+col*cw-els.code.scrollLeft,top=12+(line+1)*lh-els.code.scrollTop;const w=els.codeStack.clientWidth;left=Math.max(8,Math.min(left,w-480));top=Math.max(8,Math.min(top,els.codeStack.clientHeight-285));els.autocomplete.style.left=left+'px';els.autocomplete.style.top=top+'px';
 }
-function closeAutocomplete(){els.autocomplete.classList.remove('open');acItems=[];}
+function closeAutocomplete(){els.autocomplete.classList.remove('open');acItems=[];acImportClass='';}
 function insertImport(code,fqcn){
     const imports=importedClasses(code);
     if([...imports.values()].some(value=>value.toLowerCase()===fqcn.toLowerCase()))return code;
@@ -353,7 +361,7 @@ function insertImport(code,fqcn){
     if(useLines.length){const last=useLines[useLines.length-1];const at=offset+last.index+last[0].length;return code.slice(0,at)+line+code.slice(at);}
     return code.slice(0,offset)+line+code.slice(offset);
 }
-function acceptAutocomplete(index=acIndex){const item=acItems[index];if(!item)return;if(item.kind==='import'){els.code.value=insertImport(els.code.value,item.importClass);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();return;}let code=els.code.value;let shift=0;if(item.importClass){const imported=insertImport(code,item.importClass);shift=imported.length-code.length;code=imported;}const start=acReplaceStart+shift,end=acReplaceEnd+shift,before=code.slice(0,start),after=code.slice(end),insert=item.replaceText||item.insert||item.label;els.code.value=before+insert+after;let caret=before.length+insert.length;if(insert.endsWith('()'))caret--;els.code.setSelectionRange(caret,caret);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();}
+function acceptAutocomplete(index=acIndex){const item=acItems[index];if(!item)return;if(item.kind==='import'){els.code.value=insertImport(els.code.value,item.importClass);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();return;}let code=els.code.value;let shift=0;const importClass=item.importClass||acImportClass;if(importClass){const imported=insertImport(code,importClass);shift=imported.length-code.length;code=imported;}const start=acReplaceStart+shift,end=acReplaceEnd+shift,before=code.slice(0,start),after=code.slice(end),insert=item.replaceText||item.insert||item.label;els.code.value=before+insert+after;let caret=before.length+insert.length;if(insert.endsWith('()'))caret--;els.code.setSelectionRange(caret,caret);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();}
 
 async function validateProject(project,toastOnError=true){
     if(!project)return;setStatus('loading','Validando…');

@@ -95,6 +95,7 @@ var (
 	methodRE          = regexp.MustCompile(`(?m)\b(?:public|protected|private)?\s*(?:static\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	methodSignatureRE = regexp.MustCompile(`(?s)(?:(?:public|protected|private)\s+)?(?:(?:static|final|abstract)\s+)*function\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([?\\A-Za-z_][?\\A-Za-z0-9_|&\[\]]*))?`)
 	docMethodRE       = regexp.MustCompile(`(?m)@method\s+(?:static\s+)?([?\\A-Za-z_][?\\A-Za-z0-9_|&\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)`)
+	docReturnRE       = regexp.MustCompile(`(?m)@return\s+([?\\A-Za-z_][?\\A-Za-z0-9_|&\[\]]*)`)
 	phpImportRE       = regexp.MustCompile(`(?m)^use\s+([A-Za-z_\\][A-Za-z0-9_\\]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;`)
 	traitUseRE        = regexp.MustCompile(`(?m)^[ \t]+use\s+([^;{]+)\s*[;{]`)
 	fillableRE        = regexp.MustCompile(`(?s)\$fillable\s*=\s*\[(.*?)\]\s*;`)
