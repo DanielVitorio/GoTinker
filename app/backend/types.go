@@ -50,15 +50,23 @@ type fsListResponse struct {
 }
 
 type completion struct {
-	Label      string   `json:"label"`
-	Insert     string   `json:"insert"`
-	Kind       string   `json:"kind"`
-	Detail     string   `json:"detail"`
-	Namespace  string   `json:"namespace,omitempty"`
-	ShortName  string   `json:"shortName,omitempty"`
-	Methods    []string `json:"methods,omitempty"`
-	Properties []string `json:"properties,omitempty"`
-	Fillable   []string `json:"fillable,omitempty"`
+	Label         string            `json:"label"`
+	Insert        string            `json:"insert"`
+	Kind          string            `json:"kind"`
+	Detail        string            `json:"detail"`
+	Namespace     string            `json:"namespace,omitempty"`
+	ShortName     string            `json:"shortName,omitempty"`
+	Methods       []string          `json:"methods,omitempty"`
+	MethodDetails []methodSignature `json:"methodDetails,omitempty"`
+	TraitUses     []string          `json:"traitUses,omitempty"`
+	Properties    []string          `json:"properties,omitempty"`
+	Fillable      []string          `json:"fillable,omitempty"`
+}
+
+type methodSignature struct {
+	Name       string `json:"name"`
+	Parameters string `json:"parameters,omitempty"`
+	ReturnType string `json:"returnType,omitempty"`
 }
 
 type indexResponse struct {
@@ -82,13 +90,17 @@ type stateStore struct {
 var store = &stateStore{}
 
 var (
-	namespaceRE   = regexp.MustCompile(`(?m)^\s*namespace\s+([^;]+);`)
-	classRE       = regexp.MustCompile(`(?m)\b(class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	methodRE      = regexp.MustCompile(`(?m)\b(?:public|protected|private)?\s*(?:static\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	fillableRE    = regexp.MustCompile(`(?s)\$fillable\s*=\s*\[(.*?)\]\s*;`)
-	castsArrayRE  = regexp.MustCompile(`(?s)\$casts\s*=\s*\[(.*?)\]\s*;`)
-	castsMethodRE = regexp.MustCompile(`(?s)function\s+casts\s*\([^)]*\)\s*:\s*array\s*\{.*?return\s*\[(.*?)\]\s*;`)
-	arrayStringRE = regexp.MustCompile(`["']([^"']+)["']\s*(?:=>|,|$)`)
-	docPropertyRE = regexp.MustCompile(`(?m)@property(?:-read|-write)?\s+[^$\r\n]+\$([A-Za-z_][A-Za-z0-9_]*)`)
-	ansiRE        = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+	namespaceRE       = regexp.MustCompile(`(?m)^\s*namespace\s+([^;]+);`)
+	classRE           = regexp.MustCompile(`(?m)\b(class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	methodRE          = regexp.MustCompile(`(?m)\b(?:public|protected|private)?\s*(?:static\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	methodSignatureRE = regexp.MustCompile(`(?s)(?:(?:public|protected|private)\s+)?(?:(?:static|final|abstract)\s+)*function\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([?\\A-Za-z_][?\\A-Za-z0-9_|&\[\]]*))?`)
+	docMethodRE       = regexp.MustCompile(`(?m)@method\s+(?:static\s+)?([?\\A-Za-z_][?\\A-Za-z0-9_|&\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)`)
+	phpImportRE       = regexp.MustCompile(`(?m)^use\s+([A-Za-z_\\][A-Za-z0-9_\\]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;`)
+	traitUseRE        = regexp.MustCompile(`(?m)^[ \t]+use\s+([^;{]+)\s*[;{]`)
+	fillableRE        = regexp.MustCompile(`(?s)\$fillable\s*=\s*\[(.*?)\]\s*;`)
+	castsArrayRE      = regexp.MustCompile(`(?s)\$casts\s*=\s*\[(.*?)\]\s*;`)
+	castsMethodRE     = regexp.MustCompile(`(?s)function\s+casts\s*\([^)]*\)\s*:\s*array\s*\{.*?return\s*\[(.*?)\]\s*;`)
+	arrayStringRE     = regexp.MustCompile(`["']([^"']+)["']\s*(?:=>|,|$)`)
+	docPropertyRE     = regexp.MustCompile(`(?m)@property(?:-read|-write)?\s+[^$\r\n]+\$([A-Za-z_][A-Za-z0-9_]*)`)
+	ansiRE            = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 )

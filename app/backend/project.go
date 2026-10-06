@@ -104,10 +104,13 @@ func handleFSList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, entry := range entries {
+		name := entry.Name()
 		if !entry.IsDir() {
+			if strings.EqualFold(filepath.Ext(name), ".php") {
+				res.Entries = append(res.Entries, fsEntry{Name: name, Path: filepath.Join(abs, name), IsDir: false})
+			}
 			continue
 		}
-		name := entry.Name()
 		if strings.HasPrefix(name, ".") && name != ".config" {
 			continue
 		}
@@ -147,7 +150,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, indexResponse{OK: true, Project: project, Completions: completions, Count: len(completions)})
 }
 func scanProject(project string) ([]completion, error) {
-	roots := []string{filepath.Join(project, "app")}
+	roots := []string{filepath.Join(project, "app"), filepath.Join(project, "vendor")}
 	var out []completion
 	seen := map[string]bool{}
 
@@ -161,10 +164,13 @@ func scanProject(project string) ([]completion, error) {
 			}
 			if d.IsDir() {
 				base := strings.ToLower(d.Name())
-				if base == "vendor" || base == "storage" || base == "node_modules" || strings.HasPrefix(base, ".") {
+				if base == "storage" || base == "node_modules" || base == "tests" || base == "test" || base == "docs" || base == "examples" || base == "example" || base == "benchmarks" || base == "benchmark" || base == "fixtures" || base == "fixture" || strings.HasPrefix(base, ".") {
 					if path != root {
 						return filepath.SkipDir
 					}
+				}
+				if filepath.Clean(root) == filepath.Clean(filepath.Join(project, "vendor")) && path == root && len(d.Name()) > 0 {
+					return nil
 				}
 				return nil
 			}
@@ -209,6 +215,8 @@ func scanProject(project string) ([]completion, error) {
 				kind = "controller"
 			} else if strings.Contains(lowerPath, "app/services/") {
 				kind = "service"
+			} else if strings.Contains(lowerPath, "vendor/") {
+				kind = "package"
 			}
 
 			methodMatches := methodRE.FindAllStringSubmatch(text, -1)
@@ -219,11 +227,70 @@ func scanProject(project string) ([]completion, error) {
 					methodSeen[m[1]] = true
 					methods = append(methods, m[1])
 				}
-				if len(methods) >= 120 {
-					break
+			}
+			signatures := map[string]methodSignature{}
+			for _, m := range methodSignatureRE.FindAllStringSubmatch(text, -1) {
+				if len(m) < 3 {
+					continue
+				}
+				name := m[1]
+				if !methodSeen[name] {
+					methodSeen[name] = true
+					methods = append(methods, name)
+				}
+				signature := methodSignature{Name: name, Parameters: strings.Join(strings.Fields(m[2]), " ")}
+				if len(m) > 3 {
+					signature.ReturnType = m[3]
+				}
+				signatures[name] = signature
+			}
+			for _, m := range docMethodRE.FindAllStringSubmatch(text, -1) {
+				if len(m) < 4 {
+					continue
+				}
+				name := m[2]
+				if !methodSeen[name] {
+					methodSeen[name] = true
+					methods = append(methods, name)
+				}
+				if _, exists := signatures[name]; !exists {
+					signatures[name] = methodSignature{Name: name, Parameters: strings.Join(strings.Fields(m[3]), " "), ReturnType: m[1]}
 				}
 			}
 			sort.Strings(methods)
+			methodDetails := make([]methodSignature, 0, len(signatures))
+			for _, name := range methods {
+				if signature, ok := signatures[name]; ok {
+					methodDetails = append(methodDetails, signature)
+				}
+			}
+			imports := map[string]string{}
+			for _, match := range phpImportRE.FindAllStringSubmatch(text, -1) {
+				alias := match[2]
+				if alias == "" {
+					alias = match[1][strings.LastIndex(match[1], "\\")+1:]
+				}
+				imports[strings.ToLower(alias)] = match[1]
+			}
+			traitUses := []string{}
+			for _, match := range traitUseRE.FindAllStringSubmatch(text, -1) {
+				for _, name := range strings.Split(match[1], ",") {
+					fields := strings.Fields(name)
+					if len(fields) == 0 {
+						continue
+					}
+					name = strings.TrimSpace(fields[0])
+					if strings.HasPrefix(name, "$") || strings.HasPrefix(name, "function ") || strings.HasPrefix(name, "const ") {
+						continue
+					}
+					if imported, ok := imports[strings.ToLower(name)]; ok {
+						name = imported
+					} else if !strings.Contains(name, "\\") {
+						name = namespace + "\\" + name
+					}
+					traitUses = append(traitUses, strings.Trim(name, "\\"))
+				}
+			}
 
 			fillable := extractArrayKeys(text, fillableRE)
 			properties := append([]string{}, fillable...)
@@ -239,7 +306,7 @@ func scanProject(project string) ([]completion, error) {
 
 			out = append(out, completion{
 				Label: fqcn, Insert: fqcn, Kind: kind, Detail: relSlash,
-				Namespace: namespace, ShortName: short, Methods: methods, Properties: properties, Fillable: fillable,
+				Namespace: namespace, ShortName: short, Methods: methods, MethodDetails: methodDetails, TraitUses: uniqueSorted(traitUses), Properties: properties, Fillable: fillable,
 			})
 			return nil
 		})
@@ -248,6 +315,7 @@ func scanProject(project string) ([]completion, error) {
 		}
 	}
 
+	mergeTraitMethods(out)
 	sort.Slice(out, func(i, j int) bool {
 		ki := completionRank(out[i].Kind)
 		kj := completionRank(out[j].Kind)
@@ -257,6 +325,56 @@ func scanProject(project string) ([]completion, error) {
 		return strings.ToLower(out[i].Label) < strings.ToLower(out[j].Label)
 	})
 	return out, nil
+}
+
+func mergeTraitMethods(completions []completion) {
+	for depth := 0; depth < 6; depth++ {
+		byName := make(map[string]int, len(completions))
+		for index := range completions {
+			byName[strings.ToLower(completions[index].Label)] = index
+		}
+		changed := false
+		for index := range completions {
+			if len(completions[index].TraitUses) == 0 {
+				continue
+			}
+			methods := make(map[string]bool, len(completions[index].Methods))
+			for _, method := range completions[index].Methods {
+				methods[method] = true
+			}
+			details := make(map[string]methodSignature, len(completions[index].MethodDetails))
+			for _, signature := range completions[index].MethodDetails {
+				details[signature.Name] = signature
+			}
+			for _, traitName := range completions[index].TraitUses {
+				traitIndex, ok := byName[strings.ToLower(traitName)]
+				if !ok {
+					continue
+				}
+				trait := completions[traitIndex]
+				for _, method := range trait.Methods {
+					if !methods[method] {
+						completions[index].Methods = append(completions[index].Methods, method)
+						methods[method] = true
+						changed = true
+					}
+				}
+				for _, signature := range trait.MethodDetails {
+					if _, ok := details[signature.Name]; !ok {
+						completions[index].MethodDetails = append(completions[index].MethodDetails, signature)
+						details[signature.Name] = signature
+					}
+				}
+			}
+			sort.Strings(completions[index].Methods)
+			sort.Slice(completions[index].MethodDetails, func(a, b int) bool {
+				return completions[index].MethodDetails[a].Name < completions[index].MethodDetails[b].Name
+			})
+		}
+		if !changed {
+			return
+		}
+	}
 }
 func extractArrayKeys(text string, blockRE *regexp.Regexp) []string {
 	match := blockRE.FindStringSubmatch(text)

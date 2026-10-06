@@ -30,6 +30,11 @@ On the first launch, Go Tinker downloads the desktop runtime and displays a dedi
 - Eloquent static method suggestions after `::`
 - Eloquent Builder suggestions after chains such as `User::where()->`
 - Instance suggestions after `->`
+- Composer package completion from installed classes in `vendor/`, including an import action
+- Open and edit existing PHP files, then save them to the project or as Go Tinker snippets
+- Resizable project terminal below the editor
+- SSH connection profiles for Linux and Windows, with optional passwords protected by Windows DPAPI
+- Execute only selected PHP code, or the full editor when nothing is selected
 - `$fillable` attribute suggestions
 - Model property and cast suggestions
 - Model method and relationship suggestions
@@ -322,7 +327,7 @@ Go Tinker attempts to return the value of the final valid expression automatical
 
 ## Autocomplete
 
-Go Tinker indexes the selected Laravel project's `app/` directory.
+Go Tinker indexes the selected Laravel project's `app/` directory and PHP classes installed under `vendor/`.
 
 Typing:
 
@@ -376,7 +381,9 @@ can show:
 | Shortcut | Action |
 |---|---|
 | `Ctrl + Enter` | Execute code |
-| `Ctrl + S` | Save snippet |
+| `Ctrl + Enter` with a selection | Execute only the selected code |
+| `Ctrl + Backquote` | Show or hide the project terminal |
+| `Ctrl + S` | Save the open PHP file or save a snippet |
 | `Ctrl + Space` | Open autocomplete |
 | `Tab` | Accept autocomplete suggestion |
 | `Enter` | Accept selected autocomplete suggestion |
@@ -507,6 +514,11 @@ Na primeira execução, o Go Tinker baixa o runtime desktop necessário e exibe 
 - Sugestões estáticas e do Eloquent após `::`
 - Sugestões do Eloquent Builder em cadeias como `User::where()->`
 - Sugestões de instância após `->`
+- Autocomplete de classes instaladas pelo Composer em `vendor/`, com opção para importar
+- Abrir, editar e salvar arquivos PHP existentes no projeto
+- Terminal do projeto abaixo do editor, com altura redimensionável
+- Perfis de conexão SSH para servidores Linux e Windows, com senha opcional protegida pelo DPAPI do Windows
+- Executar somente o código selecionado ou todo o editor quando nada estiver selecionado
 - Sugestões de campos `$fillable`
 - Sugestões de propriedades e casts do Model
 - Sugestões de métodos e relacionamentos do Model
@@ -799,7 +811,7 @@ O Go Tinker tenta retornar automaticamente o valor da última expressão válida
 
 ## Autocomplete
 
-O Go Tinker indexa o diretório `app/` do projeto Laravel selecionado.
+O Go Tinker indexa o diretório `app/` e as classes PHP instaladas em `vendor/` no projeto Laravel selecionado.
 
 Ao digitar:
 
@@ -853,7 +865,9 @@ podem aparecer:
 | Atalho | Ação |
 |---|---|
 | `Ctrl + Enter` | Executar código |
-| `Ctrl + S` | Salvar snippet |
+| `Ctrl + Enter` com seleção | Executar somente o código selecionado |
+| `Ctrl + Backquote` | Abrir ou fechar o terminal do projeto |
+| `Ctrl + S` | Salvar o arquivo PHP aberto ou salvar um snippet |
 | `Ctrl + Espaço` | Abrir autocomplete |
 | `Tab` | Aceitar sugestão do autocomplete |
 | `Enter` | Aceitar sugestão selecionada |

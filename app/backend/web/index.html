@@ -33,7 +33,7 @@
         <section class="panel panel-left">
             <div class="panel-header">
                 <div class="heading"><span class="terminal-symbol">&gt;_</span><div class="heading-text"><strong>Code entry</strong><small id="editorSubtitle">PHP / Laravel Tinker</small></div></div>
-                <div class="panel-actions"><span class="mini-badge" id="indexBadge">0 símbolos</span><button class="btn btn-ghost" id="clearCodeBtn" type="button">Limpar</button></div>
+                <div class="panel-actions"><button class="btn btn-ghost" id="openFileBtn" type="button">Abrir arquivo</button><button class="btn btn-ghost" id="saveFileBtn" type="button" disabled>Salvar arquivo</button><span class="mini-badge" id="indexBadge">0 símbolos</span><button class="btn btn-ghost" id="clearCodeBtn" type="button">Limpar</button></div>
             </div>
             <div class="editor-shell">
                 <div class="editor-toolbar"><span class="prompt">tinker</span><span>›</span><span class="crumb" id="crumb">sem projeto</span><span class="spacer"></span><span id="cursorPos">Ln 1, Col 1</span></div>
@@ -48,6 +48,12 @@
                     </div>
                 </div>
             </div>
+        <div class="terminal-resizer" id="terminalResizer" aria-hidden="true"></div>
+        <section class="terminal-panel hidden" id="terminalPanel">
+            <div class="terminal-header"><strong>Terminal do projeto</strong><span class="terminal-project" id="terminalProject"></span><span class="spacer"></span><button class="btn btn-ghost" id="clearTerminalBtn" type="button">Limpar</button><button class="btn btn-ghost" id="closeTerminalBtn" type="button">×</button></div>
+            <div class="terminal-output" id="terminalOutput"></div>
+            <form class="terminal-command" id="terminalForm"><span>›</span><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Comando no diretório do projeto"><button class="btn btn-primary" type="submit">Executar</button></form>
+        </section>
         </section>
 
         <div class="resizer" id="resizer" aria-hidden="true"></div>
@@ -69,16 +75,28 @@
     </footer>
 </div>
 
+<div class="project-loading hidden" id="projectLoading" role="status" aria-live="polite">
+    <div class="project-loading-card"><span class="project-loading-spinner"></span><strong>Carregando projeto</strong><span id="projectLoadingDetail">Lendo as classes e bibliotecas instaladas…</span></div>
+</div>
+
 <div class="modal-backdrop" id="folderModal">
     <div class="modal">
-        <div class="modal-header"><span style="color:#eab75d">▱</span><strong>Abrir projeto Laravel</strong><small>navegue por qualquer disco</small><span class="spacer"></span><button class="btn btn-icon" data-close="folderModal" type="button">×</button></div>
+        <div class="modal-header"><span style="color:#eab75d">▱</span><strong>Abrir projeto Laravel</strong><small>navegue por qualquer disco</small><span class="spacer"></span><button class="btn" id="addSSHBtn" type="button">+ Conexão SSH</button><button class="btn btn-icon" data-close="folderModal" type="button">×</button></div>
         <div class="modal-body">
             <div class="folder-path-row"><input class="input" id="folderPathInput" placeholder="C:\projetos\meu-laravel"><button class="btn" id="folderGoBtn" type="button">Ir</button><button class="btn" id="folderDrivesBtn" type="button">Discos</button></div>
             <div class="drive-grid" id="driveGrid"></div>
             <div class="file-list" id="folderList"><div class="empty-list">Carregando…</div></div>
         </div>
-        <div class="modal-footer"><span style="margin-right:auto;color:#626974;font:9px var(--mono)" id="folderHint">Selecione uma pasta que contenha o arquivo artisan.</span><button class="btn" data-close="folderModal" type="button">Cancelar</button><button class="btn btn-primary" id="folderSelectBtn" type="button" disabled>Usar esta pasta</button></div>
+        <div class="modal-footer"><span style="margin-right:auto;color:#626974;font:9px var(--mono)" id="folderHint">Selecione uma pasta que contenha o arquivo artisan.</span><button class="btn" data-close="folderModal" type="button">Cancelar</button><button class="btn" id="openSelectedFileBtn" type="button" disabled>Abrir arquivo</button><button class="btn btn-primary" id="folderSelectBtn" type="button" disabled>Usar esta pasta</button></div>
     </div>
+</div>
+
+<div class="modal-backdrop" id="sshModal">
+    <form class="modal small" id="sshForm">
+        <div class="modal-header"><strong>Conexão SSH</strong><span class="spacer"></span><button class="btn btn-icon" data-close="sshModal" type="button">×</button></div>
+        <div class="modal-body"><div class="save-form"><input class="input" id="sshName" placeholder="Nome da conexão"><div class="folder-path-row"><input class="input" id="sshHost" placeholder="Servidor ou IP"><input class="input" id="sshPort" type="number" value="22" min="1" max="65535"></div><div class="folder-path-row"><input class="input" id="sshUser" placeholder="Usuário"><select class="input" id="sshPlatform"><option value="linux">Linux</option><option value="windows">Windows</option></select></div><input class="input" id="sshPassword" type="password" placeholder="Senha (opcional)"><label class="save-help"><input id="sshSavePassword" type="checkbox"> Salvar senha criptografada com DPAPI neste usuário do Windows</label><div class="save-help">A senha salva fica protegida pelo Windows e não é exibida ao reabrir o formulário. A autenticação também pode usar as chaves SSH configuradas no OpenSSH.</div></div></div>
+        <div class="modal-footer"><button class="btn" data-close="sshModal" type="button">Cancelar</button><button class="btn btn-primary" type="submit">Salvar conexão</button></div>
+    </form>
 </div>
 
 <div class="modal-backdrop" id="saveModal">

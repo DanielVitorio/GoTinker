@@ -9,14 +9,21 @@ const els = {
     phpStatus: $('#phpStatus'), laravelStatus: $('#laravelStatus'), storageStatus: $('#storageStatus'), saveState: $('#saveState'), historyCount: $('#historyCount'), toast: $('#toast'),
     folderModal: $('#folderModal'), folderPathInput: $('#folderPathInput'), folderGoBtn: $('#folderGoBtn'), folderDrivesBtn: $('#folderDrivesBtn'), driveGrid: $('#driveGrid'), folderList: $('#folderList'), folderSelectBtn: $('#folderSelectBtn'), folderHint: $('#folderHint'),
     saveModal: $('#saveModal'), snippetName: $('#snippetName'), confirmSaveBtn: $('#confirmSaveBtn'), savedModal: $('#savedModal'), savedList: $('#savedList'), savedCount: $('#savedCount'), historyModal: $('#historyModal'), historyList: $('#historyList'), clearHistoryBtn: $('#clearHistoryBtn'),
-    clearCodeBtn: $('#clearCodeBtn'), clearOutputBtn: $('#clearOutputBtn'), copyBtn: $('#copyBtn'), workspace: $('#workspace'), resizer: $('#resizer')
+    clearCodeBtn: $('#clearCodeBtn'), clearOutputBtn: $('#clearOutputBtn'), copyBtn: $('#copyBtn'), workspace: $('#workspace'), resizer: $('#resizer'),
+    openFileBtn: $('#openFileBtn'), saveFileBtn: $('#saveFileBtn'), openSelectedFileBtn: $('#openSelectedFileBtn'), panelLeft: $('.panel-left'), terminalPanel: $('#terminalPanel'), terminalResizer: $('#terminalResizer'), terminalForm: $('#terminalForm'), terminalInput: $('#terminalInput'), terminalOutput: $('#terminalOutput'), terminalProject: $('#terminalProject'), clearTerminalBtn: $('#clearTerminalBtn'), closeTerminalBtn: $('#closeTerminalBtn'),
+    sshModal: $('#sshModal'), sshForm: $('#sshForm'), sshName: $('#sshName'), sshHost: $('#sshHost'), sshPort: $('#sshPort'), sshUser: $('#sshUser'), sshPlatform: $('#sshPlatform'), sshPassword: $('#sshPassword'), sshSavePassword: $('#sshSavePassword'), projectLoading: $('#projectLoading'), projectLoadingDetail: $('#projectLoadingDetail')
 };
 
 let state = {version:3, activeTabId:null, tabs:[], snippets:[], history:[], lastProject:'', split:50};
 let completions = [];
 let indexedProject = '';
+let loadingProject = '';
+const projectLoads = new Map();
 let currentFolder = '';
 let folderCurrentIsLaravel = false;
+let selectedFile = '';
+let folderPurpose = 'project';
+let sshConnections = [];
 let viewMode = 'auto';
 let acItems = [];
 let acIndex = 0;
@@ -77,7 +84,7 @@ function normalizeState(){
     state.tabs.forEach(t=>{ t.code=String(t.code||'');t.project=String(t.project||state.lastProject||'');t.output=String(t.output||'');t.json=String(t.json||'');t.resultType=String(t.resultType||'');t.durationMs=Number(t.durationMs||0); });
     state.split=Math.min(72,Math.max(28,Number(state.split||50)));
 }
-function createTabObject(title,project){ return {id:uid('tab'),title,project:project||'',code:'',output:'',json:'',resultType:'',durationMs:0,ok:true,createdAt:nowISO(),updatedAt:nowISO()}; }
+function createTabObject(title,project){ return {id:uid('tab'),title,project:project||'',filePath:'',code:'',output:'',json:'',resultType:'',durationMs:0,ok:true,createdAt:nowISO(),updatedAt:nowISO()}; }
 function schedulePersist(){
     els.saveState.textContent='salvando…';els.saveState.classList.add('saving');
     clearTimeout(persistTimer);persistTimer=setTimeout(persistState,650);
@@ -101,8 +108,8 @@ function renderTabs(){
 function loadActiveIntoUI(){
     const tab=activeTab();if(!tab)return;
     els.code.value=tab.code||'';refreshEditor();updateProjectUI();renderOutput();
-    if(tab.project){ validateProject(tab.project,false); if(indexedProject!==tab.project) indexProject(tab.project); }
-    else{ setStatus('', 'Sem projeto');els.phpStatus.textContent='PHP —';els.laravelStatus.textContent='Laravel —';els.indexBadge.textContent='0 símbolos';completions=[];indexedProject=''; }
+    if(tab.project){ loadProjectContext(tab.project); }
+    else{ hideProjectLoading();setStatus('', 'Sem projeto');els.phpStatus.textContent='PHP —';els.laravelStatus.textContent='Laravel —';els.indexBadge.textContent='0 símbolos';completions=[];indexedProject=''; }
 }
 function switchTab(id){
     saveEditorToTab();state.activeTabId=id;schedulePersist();renderTabs();loadActiveIntoUI();setTimeout(()=>els.code.focus(),0);
@@ -116,7 +123,7 @@ function newTab(seed={}){
 }
 function saveEditorToTab(){ const t=activeTab();if(!t)return;t.code=els.code.value;t.updatedAt=nowISO(); }
 function updateProjectUI(){
-    const t=activeTab();const p=t?.project||'';els.projectPath.textContent=p||'Selecionar projeto Laravel…';els.projectPath.classList.toggle('project-placeholder',!p);els.crumb.textContent=p?basename(p):'sem projeto';els.editorSubtitle.textContent=p?basename(p)+' · PHP / Laravel':'PHP / Laravel Tinker';
+    const t=activeTab();const p=t?.project||'';els.projectPath.textContent=p||'Selecionar projeto Laravel…';els.projectPath.classList.toggle('project-placeholder',!p);els.crumb.textContent=t?.filePath?basename(t.filePath):(p?basename(p):'sem projeto');els.editorSubtitle.textContent=t?.filePath?basename(t.filePath):(p?basename(p)+' · PHP / Laravel':'PHP / Laravel Tinker');els.saveFileBtn.disabled=!t?.filePath;els.terminalProject.textContent=p||'Selecione um projeto Laravel';
 }
 
 function highlightPHP(source){
@@ -220,7 +227,8 @@ function trailingChainContext(before,pos){
     const expression=match[1]+'::'+match[2];
     const info=expressionChainInfo(expression);
     if(!info)return null;
-    return {type:'chain',classToken:info.classToken,mode:info.mode,prefix,start:pos-prefix.length,end:pos};
+    const cls=resolveCompletion(info.classToken);const mode=cls?.kind==='package'&&info.calls.some(x=>x.toLowerCase()==='now')?'instance':info.mode;
+    return {type:'chain',classToken:info.classToken,mode,prefix,start:pos-prefix.length,end:pos};
 }
 function completionContext(){
     const pos=els.code.selectionStart||0;
@@ -242,7 +250,24 @@ function completionContext(){
 function classCandidates(prefix){
     const p=prefix.toLowerCase();
     const src=[...completions,...commonSymbols];
-    return src.filter(x=>{const l=(x.label||'').toLowerCase(),s=(x.shortName||'').toLowerCase();return prefix.includes('\\')?l.startsWith(p):s.startsWith(p)||l.startsWith(p)}).slice(0,30).map(x=>({...x,replaceText:x.insert||x.label}));
+    const imports=importedClasses(els.code.value);
+    const found=src.filter(x=>{const l=(x.label||'').toLowerCase(),s=(x.shortName||'').toLowerCase();return prefix.includes('\\')?l.startsWith(p):s.startsWith(p)||l.startsWith(p)}).slice(0,30).map(x=>({...x,replaceText:x.insert||x.label}));
+    const firstPackage=found.find(item=>item.kind==='package');
+    for(const item of found){if(item.kind!=='package')continue;const imported=[...imports].find(([,fqcn])=>fqcn.toLowerCase()===item.label.toLowerCase());if(imported)item.replaceText=imported[0];else{item.importClass=item.label;item.replaceText=item.shortName;}}
+    if(firstPackage){const imported=[...imports].some(([,fqcn])=>fqcn.toLowerCase()===firstPackage.label.toLowerCase());if(!imported)found.push({label:'Importar '+firstPackage.shortName,insert:'',kind:'import',detail:firstPackage.label,importClass:firstPackage.label,shortName:firstPackage.shortName,replaceText:''});}
+    return found;
+}
+function methodLabel(method,completion){
+    const signature=completion?.methodDetails?.find(item=>item.name===method);
+    if(!signature)return method+'()';
+    return `${method}(${signature.parameters||''})${signature.returnType?' : '+signature.returnType:''}`;
+}
+function importClassFor(classToken,completion){
+    if(completion?.kind!=='package')return '';
+    const imports=importedClasses(els.code.value);
+    const resolved=resolveCompletion(classToken);
+    const fqcn=resolved?.label||completion.label;
+    return [...imports.values()].some(value=>value.toLowerCase()===fqcn.toLowerCase())?'':fqcn;
 }
 function methodCandidates(classToken,prefix){
     const c=resolveCompletion(classToken);
@@ -250,7 +275,8 @@ function methodCandidates(classToken,prefix){
     if(c?.kind==='model'||/model/i.test(c?.kind||''))methods.push(...modelMethods);
     methods=[...new Set(methods)].sort();
     const p=prefix.toLowerCase();
-    return methods.filter(m=>m.toLowerCase().startsWith(p)).slice(0,35).map(m=>({label:m+'()',insert:m+'()',kind:'method',detail:c?c.label:'Método Laravel',replaceText:m+'()'}));
+    const importClass=importClassFor(classToken,c);
+    return methods.filter(m=>m.toLowerCase().startsWith(p)).slice(0,35).map(m=>({label:methodLabel(m,c),insert:m+'()',kind:'method',detail:c?c.label:'Método Laravel',replaceText:m+'()',importClass}));
 }
 function modelInstanceCandidates(classToken,prefix){
     const c=resolveCompletion(classToken);
@@ -263,7 +289,7 @@ function modelInstanceCandidates(classToken,prefix){
         for(const field of c.properties||[])push(field,field,'property',`Atributo · ${c.label}`);
         for(const method of modelInstanceMethods)push(method+'()',method+'()','method',`Eloquent Model · ${c.label}`);
     }
-    for(const method of c.methods||[])push(method+'()',method+'()','method',c.label);
+    for(const method of c.methods||[]){const signature=methodLabel(method,c);push(signature,method+'()','method',c.label);}
     const p=(prefix||'').toLowerCase();
     return items.filter(x=>x.label.toLowerCase().startsWith(p)).slice(0,45);
 }
@@ -293,6 +319,7 @@ function collectionCandidates(classToken,prefix){
 function chainCandidates(classToken,mode,prefix){
     if(mode==='builder')return builderCandidates(classToken,prefix);
     if(mode==='collection')return collectionCandidates(classToken,prefix);
+    if(resolveCompletion(classToken)?.kind==='package')return modelInstanceCandidates(classToken,prefix);
     if(mode==='model'||mode==='instance')return modelInstanceCandidates(classToken,prefix);
     return [];
 }
@@ -308,30 +335,64 @@ function updateAutocomplete(force=false){
     acItems=items;acIndex=0;acReplaceStart=ctx.start;acReplaceEnd=ctx.end;renderAutocomplete();positionAutocomplete();
 }
 function renderAutocomplete(){
-    els.autocomplete.innerHTML='';acItems.slice(0,12).forEach((item,i)=>{const b=document.createElement('button');b.type='button';b.className='ac-item'+(i===acIndex?' active':'');b.dataset.i=i;b.innerHTML=`<span class="ac-kind ${escapeHTML(item.kind||'class')}">${escapeHTML(item.kind||'class')}</span><span class="ac-main"><div class="ac-label">${escapeHTML(item.label)}</div><div class="ac-detail">${escapeHTML(item.detail||'')}</div></span>`;b.addEventListener('mousedown',e=>{e.preventDefault();acceptAutocomplete(i)});els.autocomplete.appendChild(b);});els.autocomplete.classList.add('open');
+    els.autocomplete.innerHTML='';acItems.slice(0,12).forEach((item,i)=>{const b=document.createElement('button');b.type='button';b.className='ac-item'+(i===acIndex?' active':'');b.dataset.i=i;b.title=`${item.label}${item.detail?'\n'+item.detail:''}`;b.innerHTML=`<span class="ac-kind ${escapeHTML(item.kind||'class')}">${escapeHTML(item.kind||'class')}</span><span class="ac-main"><div class="ac-label">${escapeHTML(item.label)}</div><div class="ac-detail">${escapeHTML(item.detail||'')}</div></span>`;b.addEventListener('mousedown',e=>{e.preventDefault();acceptAutocomplete(i)});els.autocomplete.appendChild(b);});els.autocomplete.classList.add('open');
 }
 function positionAutocomplete(){
     const pos=els.code.selectionStart||0,before=els.code.value.slice(0,pos),lines=before.split('\n'),line=lines.length-1,col=lines[lines.length-1].length;const lh=21.67,cw=7.58;let left=15+col*cw-els.code.scrollLeft,top=12+(line+1)*lh-els.code.scrollTop;const w=els.codeStack.clientWidth;left=Math.max(8,Math.min(left,w-480));top=Math.max(8,Math.min(top,els.codeStack.clientHeight-285));els.autocomplete.style.left=left+'px';els.autocomplete.style.top=top+'px';
 }
 function closeAutocomplete(){els.autocomplete.classList.remove('open');acItems=[];}
-function acceptAutocomplete(index=acIndex){const item=acItems[index];if(!item)return;const before=els.code.value.slice(0,acReplaceStart),after=els.code.value.slice(acReplaceEnd),insert=item.replaceText||item.insert||item.label;els.code.value=before+insert+after;let caret=before.length+insert.length;if(insert.endsWith('()'))caret--;els.code.setSelectionRange(caret,caret);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();}
+function insertImport(code,fqcn){
+    const imports=importedClasses(code);
+    if([...imports.values()].some(value=>value.toLowerCase()===fqcn.toLowerCase()))return code;
+    const line=`use ${fqcn};\n`;
+    const opening=code.match(/^\s*<\?php\s*/);
+    if(!opening)return line+code;
+    const offset=opening[0].length;
+    const rest=code.slice(offset);
+    const useLines=[...rest.matchAll(/^\s*use\s+[^;]+;\s*/gm)];
+    if(useLines.length){const last=useLines[useLines.length-1];const at=offset+last.index+last[0].length;return code.slice(0,at)+line+code.slice(at);}
+    return code.slice(0,offset)+line+code.slice(offset);
+}
+function acceptAutocomplete(index=acIndex){const item=acItems[index];if(!item)return;if(item.kind==='import'){els.code.value=insertImport(els.code.value,item.importClass);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();return;}let code=els.code.value;let shift=0;if(item.importClass){const imported=insertImport(code,item.importClass);shift=imported.length-code.length;code=imported;}const start=acReplaceStart+shift,end=acReplaceEnd+shift,before=code.slice(0,start),after=code.slice(end),insert=item.replaceText||item.insert||item.label;els.code.value=before+insert+after;let caret=before.length+insert.length;if(insert.endsWith('()'))caret--;els.code.setSelectionRange(caret,caret);refreshEditor();saveEditorToTab();schedulePersist();closeAutocomplete();els.code.focus();}
 
 async function validateProject(project,toastOnError=true){
     if(!project)return;setStatus('loading','Validando…');
-    try{const s=await api('/api/status?project='+encodeURIComponent(project));if(s.ok){setStatus('ok','Laravel pronto');els.phpStatus.textContent='PHP '+s.php;els.laravelStatus.textContent=s.laravel;els.storageStatus.textContent=s.storage+' · '+basename(s.storagePath||'');if(indexedProject!==project)indexProject(project);}else{setStatus('bad',s.error||'Projeto inválido');if(toastOnError)showToast(s.error||'Projeto inválido',true);}}catch(e){setStatus('bad','Falha na validação');if(toastOnError)showToast(e.message,true);}
+    try{const s=await api('/api/status?project='+encodeURIComponent(project));if(s.ok){setStatus('ok','Laravel pronto');els.phpStatus.textContent='PHP '+s.php;els.laravelStatus.textContent=s.laravel;els.storageStatus.textContent=s.storage+' · '+basename(s.storagePath||'');return true;}setStatus('bad',s.error||'Projeto inválido');if(toastOnError)showToast(s.error||'Projeto inválido',true);return false;}catch(e){setStatus('bad','Falha na validação');if(toastOnError)showToast(e.message,true);return false;}
 }
-async function indexProject(project){
-    if(!project)return;els.indexBadge.textContent='indexando…';
-    try{const data=await api('/api/index?project='+encodeURIComponent(project));if(!data.ok)throw new Error(data.error||'Falha ao indexar');completions=data.completions||[];indexedProject=project;els.indexBadge.textContent=`${data.count||0} símbolos`;showToast(`Projeto indexado: ${data.count||0} classes`);}catch(e){completions=[];indexedProject='';els.indexBadge.textContent='0 símbolos';showToast(e.message,true);}
+function showProjectLoading(project,detail){loadingProject=project;els.projectLoading.classList.remove('hidden');els.projectLoadingDetail.textContent=detail;}
+function hideProjectLoading(){loadingProject='';els.projectLoading.classList.add('hidden');}
+async function indexProject(project,force=false){
+    if(!project)return false;
+    if(!force&&indexedProject===project)return true;
+    els.indexBadge.textContent='indexando…';
+    try{const data=await api('/api/index?project='+encodeURIComponent(project));if(!data.ok)throw new Error(data.error||'Falha ao indexar');if(activeTab()?.project===project){completions=data.completions||[];indexedProject=project;els.indexBadge.textContent=`${data.count||0} símbolos`;}return true;}catch(e){if(activeTab()?.project===project){completions=[];indexedProject='';els.indexBadge.textContent='0 símbolos';}showToast(e.message,true);return false;}
+}
+async function loadProjectContext(project,force=false){
+    if(!project)return;
+    if(!force&&indexedProject===project)return;
+    if(projectLoads.has(project)&&!force)return projectLoads.get(project);
+    const task=(async()=>{
+        showProjectLoading(project,'Validando PHP e Laravel…');
+        try{
+            const valid=await validateProject(project,false);
+            if(!valid)throw new Error('Não foi possível validar o projeto Laravel.');
+            if(loadingProject===project)els.projectLoadingDetail.textContent='Lendo as classes e bibliotecas instaladas em vendor…';
+            const indexed=await indexProject(project,force);
+            if(!indexed)throw new Error('Não foi possível ler as classes do projeto.');
+        }catch(error){if(error.message!=='Não foi possível ler as classes do projeto.')showToast(error.message,true);}
+        finally{if(loadingProject===project)hideProjectLoading();}
+    })();
+    projectLoads.set(project,task);
+    try{return await task;}finally{projectLoads.delete(project);}
 }
 
-async function runCode(){
-    if(running)return;saveEditorToTab();const tab=activeTab();if(!tab?.project){openFolderBrowser('');return;}if(!tab.code.trim()){showToast('Digite algum código PHP.',true);els.code.focus();return;}
+async function runCode(selectedCode=null){
+    if(running)return;saveEditorToTab();const tab=activeTab();if(!tab?.project){openFolderBrowser('');return;}const selection=els.code.selectionStart!==els.code.selectionEnd;const code=selectedCode!==null?selectedCode:(selection?els.code.value.slice(els.code.selectionStart,els.code.selectionEnd):tab.code);if(!code.trim()){showToast('Digite ou selecione algum código PHP.',true);els.code.focus();return;}
     running=true;els.runBtn.disabled=true;els.runBtn.innerHTML='⏳ Executando…';els.durationLabel.textContent='executando';els.output.className='output';els.output.innerHTML='<span style="color:#777">Executando no Laravel…</span>';
     try{
-        const res=await api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:tab.project,code:tab.code})});
+        const res=await api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:tab.project,code})});
         tab.output=res.output||'';tab.json=res.json||'';tab.resultType=res.resultType||'';tab.durationMs=res.durationMs||0;tab.ok=!!res.ok;tab.updatedAt=nowISO();
-        state.history.unshift({id:uid('run'),title:tab.title,project:tab.project,code:tab.code,output:tab.output,json:tab.json,resultType:tab.resultType,durationMs:tab.durationMs,ok:tab.ok,error:res.error||'',createdAt:nowISO()});state.history=state.history.slice(0,100);
+        state.history.unshift({id:uid('run'),title:tab.title,project:tab.project,code,output:tab.output,json:tab.json,resultType:tab.resultType,durationMs:tab.durationMs,ok:tab.ok,error:res.error||'',createdAt:nowISO()});state.history=state.history.slice(0,100);
         renderOutput();renderHistory();schedulePersist();
         if(!res.ok)showToast(res.error||'Execução falhou',true);
     }catch(e){tab.output=e.message;tab.json='';tab.resultType='erro';tab.ok=false;tab.durationMs=0;renderOutput();showToast(e.message,true);}
@@ -351,16 +412,20 @@ function renderOutput(){
     els.output.className='output'+(tab.ok===false?' error':'');els.output.innerHTML=ansiToHTML(raw);
 }
 
-async function openFolderBrowser(path){openModal(els.folderModal);await browseFolder(path||'');}
+async function openFolderBrowser(path,purpose='project'){folderPurpose=purpose;selectedFile='';els.openSelectedFileBtn.hidden=purpose!=='file';els.folderSelectBtn.hidden=purpose==='file';openModal(els.folderModal);await browseFolder(path||'');await loadSSHConnections();}
 async function browseFolder(path){
-    els.folderList.innerHTML='<div class="empty-list">Carregando…</div>';els.driveGrid.innerHTML='';els.folderSelectBtn.disabled=true;folderCurrentIsLaravel=false;
-    try{const data=await api('/api/fs/list?path='+encodeURIComponent(path||''));if(!data.ok)throw new Error(data.error||'Não foi possível listar a pasta');currentFolder=data.current||'';els.folderPathInput.value=currentFolder;const drives=data.drives||[];drives.forEach(d=>{const b=document.createElement('button');b.type='button';b.className='drive-btn';b.textContent='▣ '+d;b.addEventListener('click',()=>browseFolder(d));els.driveGrid.appendChild(b);});
+    els.folderList.innerHTML='<div class="empty-list">Carregando…</div>';els.driveGrid.innerHTML='';els.folderSelectBtn.disabled=true;els.openSelectedFileBtn.disabled=true;selectedFile='';folderCurrentIsLaravel=false;
+    try{const data=await api('/api/fs/list?path='+encodeURIComponent(path||''));if(!data.ok)throw new Error(data.error||'Não foi possível listar a pasta');currentFolder=data.current||'';els.folderPathInput.value=currentFolder;const drives=data.drives||[];drives.forEach(d=>{const b=document.createElement('button');b.type='button';b.className='drive-btn';b.textContent='▣ '+d;b.addEventListener('click',()=>browseFolder(d));els.driveGrid.appendChild(b);});renderSSHConnections();
         if(!currentFolder&&drives.length){els.folderList.innerHTML='<div class="empty-list">Escolha um disco acima.</div>';els.folderHint.textContent='Todos os discos disponíveis são mostrados acima.';return;}
-        const currentStatus=await api('/api/status?project='+encodeURIComponent(currentFolder)).catch(()=>({ok:false}));folderCurrentIsLaravel=!!currentStatus.ok;els.folderSelectBtn.disabled=!folderCurrentIsLaravel;els.folderHint.textContent=folderCurrentIsLaravel?'✓ Esta pasta é um projeto Laravel.':'Entre em uma pasta que contenha o arquivo artisan.';
-        els.folderList.innerHTML='';if(data.parent){const up=document.createElement('button');up.type='button';up.className='file-row';up.innerHTML='<span class="file-icon">↰</span><span class="file-name">..</span><span></span>';up.addEventListener('click',()=>browseFolder(data.parent));els.folderList.appendChild(up);}for(const entry of data.entries||[]){const row=document.createElement('button');row.type='button';row.className='file-row';row.innerHTML=`<span class="file-icon">▱</span><span class="file-name">${escapeHTML(entry.name)}</span>${entry.isLaravel?'<span class="laravel-tag">Laravel</span>':'<span></span>'}`;row.addEventListener('dblclick',()=>browseFolder(entry.path));row.addEventListener('click',()=>{if(entry.isLaravel){browseFolder(entry.path);}else{browseFolder(entry.path);}});els.folderList.appendChild(row);}if(!(data.entries||[]).length&&!data.parent)els.folderList.innerHTML='<div class="empty-list">Nenhuma pasta encontrada.</div>';
+        const currentStatus=await api('/api/status?project='+encodeURIComponent(currentFolder)).catch(()=>({ok:false}));folderCurrentIsLaravel=!!currentStatus.ok;els.folderSelectBtn.disabled=folderPurpose==='file'||!folderCurrentIsLaravel;els.folderHint.textContent=folderPurpose==='file'?'Selecione um arquivo PHP para abrir.':folderCurrentIsLaravel?'✓ Esta pasta é um projeto Laravel.':'Entre em uma pasta que contenha o arquivo artisan.';
+        els.folderList.innerHTML='';if(data.parent){const up=document.createElement('button');up.type='button';up.className='file-row';up.innerHTML='<span class="file-icon">↰</span><span class="file-name">..</span><span></span>';up.addEventListener('click',()=>browseFolder(data.parent));els.folderList.appendChild(up);}for(const entry of data.entries||[]){const row=document.createElement('button');row.type='button';row.className='file-row'+(!entry.isDir?' file-entry':'');row.innerHTML=`<span class="file-icon">${entry.isDir?'▱':'PHP'}</span><span class="file-name">${escapeHTML(entry.name)}</span>${entry.isLaravel?'<span class="laravel-tag">Laravel</span>':'<span></span>'}`;row.addEventListener('dblclick',()=>entry.isDir?browseFolder(entry.path):openProjectFile(entry.path));row.addEventListener('click',()=>{if(entry.isDir){browseFolder(entry.path);return;}selectedFile=entry.path;els.openSelectedFileBtn.disabled=false;$$('.file-entry').forEach(x=>x.classList.remove('selected'));row.classList.add('selected');});els.folderList.appendChild(row);}if(!(data.entries||[]).length&&!data.parent)els.folderList.innerHTML='<div class="empty-list">Nenhum arquivo PHP ou pasta encontrada.</div>';
     }catch(e){els.folderList.innerHTML=`<div class="empty-list">${escapeHTML(e.message)}</div>`;showToast(e.message,true);}
 }
-function chooseCurrentFolder(){if(!currentFolder||!folderCurrentIsLaravel)return;const tab=activeTab();tab.project=currentFolder;state.lastProject=currentFolder;closeModal(els.folderModal);updateProjectUI();validateProject(currentFolder);indexProject(currentFolder);schedulePersist();}
+function chooseCurrentFolder(){if(!currentFolder||!folderCurrentIsLaravel)return;const tab=activeTab();tab.project=currentFolder;state.lastProject=currentFolder;closeModal(els.folderModal);updateProjectUI();loadProjectContext(currentFolder,true);schedulePersist();}
+async function loadSSHConnections(){try{const data=await api('/api/ssh/connections');sshConnections=data.connections||[];renderSSHConnections();}catch(error){showToast(error.message,true);}}
+function renderSSHConnections(){ $$('.ssh-profile').forEach(item=>item.remove());for(const connection of sshConnections){const button=document.createElement('button');button.type='button';button.className='drive-btn ssh-profile';button.textContent=`SSH · ${connection.name}`;button.title=`${connection.user}@${connection.host}:${connection.port} · ${connection.platform}`;button.addEventListener('click',()=>{els.sshForm.reset();els.sshForm.dataset.id=connection.id;els.sshName.value=connection.name;els.sshHost.value=connection.host;els.sshPort.value=connection.port;els.sshUser.value=connection.user;els.sshPlatform.value=connection.platform;els.sshPassword.value='';els.sshSavePassword.checked=false;openModal(els.sshModal)});els.driveGrid.appendChild(button);}}
+async function openProjectFile(path){try{const data=await api('/api/file?path='+encodeURIComponent(path));const tab=activeTab();tab.code=data.content||'';tab.filePath=data.path||path;if(data.project){tab.project=data.project;state.lastProject=data.project;}tab.title=basename(path);closeModal(els.folderModal);els.code.value=tab.code;refreshEditor();updateProjectUI();if(tab.project)loadProjectContext(tab.project,true);saveEditorToTab();schedulePersist();els.code.focus();showToast('Arquivo aberto no editor.');}catch(e){showToast(e.message,true);}}
+async function saveProjectFile(){const tab=activeTab();if(!tab?.filePath)return;saveEditorToTab();try{await api('/api/file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:tab.filePath,content:tab.code})});showToast('Arquivo salvo no projeto.');}catch(e){showToast(e.message,true);}}
 
 function openSaveModal(){const tab=activeTab();if(!tab)return;els.snippetName.value=tab.title||'';openModal(els.saveModal);setTimeout(()=>{els.snippetName.focus();els.snippetName.select();},50);}
 function saveSnippet(){const tab=activeTab();const name=els.snippetName.value.trim()||tab.title||'Snippet';const existing=state.snippets.find(s=>s.name.toLowerCase()===name.toLowerCase());if(existing){existing.code=tab.code;existing.project=tab.project;existing.updatedAt=nowISO();}else state.snippets.unshift({id:uid('snippet'),name,code:tab.code,project:tab.project,createdAt:nowISO(),updatedAt:nowISO()});tab.title=name;closeModal(els.saveModal);renderTabs();renderSaved();schedulePersist();showToast('Snippet salvo no SQLite.');}
@@ -379,8 +444,8 @@ els.code.addEventListener('scroll',()=>{syncEditorScroll();if(els.autocomplete.c
 els.code.addEventListener('click',()=>{updateCursor();updateAutocomplete();});
 els.code.addEventListener('keyup',e=>{if(!['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key))updateCursor();});
 els.code.addEventListener('keydown',e=>{
-    if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();closeAutocomplete();runCode();return;}
-    if(e.ctrlKey&&e.key.toLowerCase()==='s'){e.preventDefault();closeAutocomplete();openSaveModal();return;}
+    if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();closeAutocomplete();const selected=els.code.selectionStart!==els.code.selectionEnd?els.code.value.slice(els.code.selectionStart,els.code.selectionEnd):'';runCode(selected);return;}
+    if(e.ctrlKey&&e.key.toLowerCase()==='s'){e.preventDefault();closeAutocomplete();if(activeTab()?.filePath)saveProjectFile();else openSaveModal();return;}
     if(e.ctrlKey&&e.code==='Space'){e.preventDefault();updateAutocomplete(true);return;}
     if(els.autocomplete.classList.contains('open')){
         if(e.key==='ArrowDown'){e.preventDefault();acIndex=(acIndex+1)%Math.min(12,acItems.length);renderAutocomplete();return;}
@@ -391,16 +456,23 @@ els.code.addEventListener('keydown',e=>{
     if(e.key==='Tab'){e.preventDefault();const start=els.code.selectionStart,end=els.code.selectionEnd;els.code.setRangeText('    ',start,end,'end');refreshEditor();saveEditorToTab();schedulePersist();}
 });
 
-document.addEventListener('keydown',e=>{if(e.key==='Escape')$$('.modal-backdrop.open').forEach(closeModal)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$$('.modal-backdrop.open').forEach(closeModal);if(e.ctrlKey&&e.code==='Backquote'){e.preventDefault();toggleTerminal();}});
 $$('[data-close]').forEach(b=>b.addEventListener('click',()=>closeModal($('#'+b.dataset.close))));
 $$('.modal-backdrop').forEach(m=>m.addEventListener('mousedown',e=>{if(e.target===m)closeModal(m)}));
 $$('.view-btn').forEach(b=>b.addEventListener('click',()=>{viewMode=b.dataset.view;renderOutput()}));
 els.runBtn.addEventListener('click',runCode);els.saveBtn.addEventListener('click',openSaveModal);els.confirmSaveBtn.addEventListener('click',saveSnippet);els.snippetName.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveSnippet()}});
-els.savedBtn.addEventListener('click',()=>{renderSaved();openModal(els.savedModal)});els.historyBtn.addEventListener('click',()=>{renderHistory();openModal(els.historyModal)});els.newTabBtn.addEventListener('click',()=>newTab());els.projectPicker.addEventListener('click',()=>openFolderBrowser(activeTab()?.project||state.lastProject||''));els.reindexBtn.addEventListener('click',()=>{const p=activeTab()?.project;if(p)indexProject(p);else openFolderBrowser('')});
+els.savedBtn.addEventListener('click',()=>{renderSaved();openModal(els.savedModal)});els.historyBtn.addEventListener('click',()=>{renderHistory();openModal(els.historyModal)});els.newTabBtn.addEventListener('click',()=>newTab());els.projectPicker.addEventListener('click',()=>openFolderBrowser(activeTab()?.project||state.lastProject||''));els.reindexBtn.addEventListener('click',()=>{const p=activeTab()?.project;if(p)loadProjectContext(p,true);else openFolderBrowser('')});
 els.folderGoBtn.addEventListener('click',()=>browseFolder(els.folderPathInput.value.trim()));els.folderPathInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();browseFolder(els.folderPathInput.value.trim())}});els.folderDrivesBtn.addEventListener('click',()=>browseFolder(''));els.folderSelectBtn.addEventListener('click',chooseCurrentFolder);
 els.clearCodeBtn.addEventListener('click',()=>{els.code.value='';refreshEditor();saveEditorToTab();schedulePersist();els.code.focus()});els.clearOutputBtn.addEventListener('click',()=>{const t=activeTab();if(t){t.output='';t.json='';t.resultType='';t.durationMs=0;t.ok=true;renderOutput();schedulePersist()}});
 els.copyBtn.addEventListener('click',async()=>{const t=activeTab();const text=(viewMode==='json'&&t?.json)?t.json:(t?.output||t?.json||'');if(!text)return;try{await navigator.clipboard.writeText(stripAnsi(text));showToast('Resposta copiada.')}catch{showToast('Não foi possível copiar.',true)}});
 els.clearHistoryBtn.addEventListener('click',()=>{state.history=[];renderHistory();schedulePersist()});
+els.openFileBtn.addEventListener('click',()=>openFolderBrowser(activeTab()?.project||state.lastProject||'','file'));els.openSelectedFileBtn.addEventListener('click',()=>{if(selectedFile)openProjectFile(selectedFile)});els.saveFileBtn.addEventListener('click',saveProjectFile);
+$('#addSSHBtn').addEventListener('click',()=>{els.sshForm.reset();delete els.sshForm.dataset.id;els.sshPort.value='22';openModal(els.sshModal)});
+els.sshForm.addEventListener('submit',async e=>{e.preventDefault();const connection={id:els.sshForm.dataset.id||'',name:els.sshName.value.trim(),host:els.sshHost.value.trim(),port:Number(els.sshPort.value||22),user:els.sshUser.value.trim(),platform:els.sshPlatform.value};try{const result=await api('/api/ssh/connections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connection,password:els.sshPassword.value,save:els.sshSavePassword.checked})});closeModal(els.sshModal);await loadSSHConnections();showToast(`Conexão ${result.connection.name} salva. Senha ${els.sshSavePassword.checked?'protegida com DPAPI':'não armazenada'}.`);}catch(error){showToast(error.message,true);}});
+function toggleTerminal(force){const show=typeof force==='boolean'?force:els.terminalPanel.classList.contains('hidden');els.terminalPanel.classList.toggle('hidden',!show);els.panelLeft.classList.toggle('terminal-open',show);if(show){els.terminalProject.textContent=activeTab()?.project||'Selecione um projeto Laravel';setTimeout(()=>els.terminalInput.focus(),0);}}
+els.closeTerminalBtn.addEventListener('click',()=>toggleTerminal(false));els.clearTerminalBtn.addEventListener('click',()=>{els.terminalOutput.textContent=''});
+els.terminalForm.addEventListener('submit',async e=>{e.preventDefault();const command=els.terminalInput.value.trim(),project=activeTab()?.project;if(!command)return;if(!project){showToast('Selecione um projeto antes de usar o terminal.',true);return;}els.terminalInput.value='';els.terminalOutput.textContent+=`\n$ ${command}\n`;try{const result=await api('/api/terminal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project,command})});els.terminalOutput.textContent+=result.output||result.error||'';if(!result.ok&&result.error)els.terminalOutput.textContent+=`\n${result.error}`;}catch(error){els.terminalOutput.textContent+=error.message;}els.terminalOutput.scrollTop=els.terminalOutput.scrollHeight;});
+let terminalResize=false;els.terminalResizer.addEventListener('pointerdown',e=>{terminalResize=true;els.terminalResizer.classList.add('active');els.terminalResizer.setPointerCapture(e.pointerId)});els.terminalResizer.addEventListener('pointermove',e=>{if(!terminalResize)return;const rect=els.panelLeft.getBoundingClientRect();els.panelLeft.style.setProperty('--terminal-height',`${Math.max(90,Math.min(rect.height-180,rect.bottom-e.clientY))}px`)});els.terminalResizer.addEventListener('pointerup',e=>{terminalResize=false;els.terminalResizer.classList.remove('active');try{els.terminalResizer.releasePointerCapture(e.pointerId)}catch{}});
 setupResizer();
 window.addEventListener('beforeunload',()=>{saveEditorToTab();try{navigator.sendBeacon('/api/state/save',new Blob([JSON.stringify(state)],{type:'application/json'}))}catch{}});
 loadState();
