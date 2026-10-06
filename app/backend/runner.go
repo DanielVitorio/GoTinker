@@ -55,6 +55,8 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	evalCode := makeEvaluable(code)
+	previewParams, _ := json.Marshal(req.PreviewParams)
+	previewParamsArg := base64.StdEncoding.EncodeToString(previewParams)
 	runnerPath, err := ensureRunner()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, runResponse{OK: false, ExitCode: -1, Error: err.Error()})
@@ -62,7 +64,7 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	started := time.Now()
-	cmd := exec.CommandContext(ctx, php, runnerPath, project)
+	cmd := exec.CommandContext(ctx, php, runnerPath, project, previewParamsArg)
 	configureHidden(cmd)
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(),
@@ -155,6 +157,8 @@ func ensureRunner() (string, error) {
 const phpRunner = `<?php
 $project = $argv[1] ?? '';
 $project = rtrim($project, "\\/");
+$previewParams = json_decode(base64_decode($argv[2] ?? ''), true);
+if (!is_array($previewParams)) $previewParams = [];
 $started = microtime(true);
 $payload = [
     'ok' => false,
@@ -203,6 +207,57 @@ try {
     }
 
     $payload['output'] = trim($captured . (($captured !== '' && $dump !== '') ? "\n" : '') . $dump);
+
+    if (is_string($result) && preg_match('/^\s*(?:<!doctype\s+html|<html\b|<(?:div|main|section|article|svg|img|table|form|h[1-6])\b)/i', $result)) {
+        $payload['previewHtml'] = $result;
+    } elseif ($result instanceof \Symfony\Component\HttpFoundation\Response) {
+        $contentType = strtolower((string) $result->headers->get('Content-Type', ''));
+        $content = (string) $result->getContent();
+        $payload['previewData'] = base64_encode($content);
+        $payload['previewMime'] = $contentType ?: 'text/html; charset=utf-8';
+        $payload['previewStatus'] = $result->getStatusCode();
+        if (str_contains($contentType, 'text/html') || preg_match('/^\s*(?:<!doctype\s+html|<html\b|<(?:div|main|section|article|svg|img|table|form|h[1-6])\b)/i', $content)) {
+            $payload['previewHtml'] = $content;
+        }
+    }
+
+    if ($result instanceof \Illuminate\Routing\Route) {
+        $methods = $result->methods();
+        $method = in_array('GET', $methods, true) ? 'GET' : ($methods[0] ?? 'GET');
+        $uri = $result->uri();
+        preg_match_all('/\{([^}?]+)(\?)?\}/', $uri, $matches, PREG_SET_ORDER);
+        $routeParameters = [];
+        $missingParameters = [];
+        foreach ($matches as $match) {
+            $parameterName = $match[1];
+            $optional = ($match[2] ?? '') === '?';
+            $routeParameters[] = ['name' => $parameterName, 'optional' => $optional];
+            if (!$optional && trim((string) ($previewParams[$parameterName] ?? '')) === '') {
+                $missingParameters[] = $parameterName;
+            }
+        }
+        $payload['previewRoute'] = ['uri' => $uri, 'method' => $method, 'parameters' => $routeParameters, 'missing' => $missingParameters];
+        if ($method === 'GET' && !$missingParameters) {
+            $path = preg_replace_callback('/\{([^}?]+)(\?)?\}/', function ($match) use ($previewParams) {
+                $value = trim((string) ($previewParams[$match[1]] ?? ''));
+                if ($value === '') return '';
+                return rawurlencode($value);
+            }, $uri);
+            $path = preg_replace('~/+~', '/', '/' . trim((string) $path, '/'));
+            $request = \Illuminate\Http\Request::create($path, $method);
+            $httpKernel = $app->make(\Illuminate\Contracts\Http\Kernel::class);
+            $response = $httpKernel->handle($request);
+            $content = (string) $response->getContent();
+            $contentType = strtolower((string) $response->headers->get('Content-Type', ''));
+            $payload['previewData'] = base64_encode($content);
+            $payload['previewMime'] = $contentType ?: 'text/html; charset=utf-8';
+            $payload['previewStatus'] = $response->getStatusCode();
+            if (str_contains($contentType, 'text/html')) {
+                $payload['previewHtml'] = $content;
+            }
+            $httpKernel->terminate($request, $response);
+        }
+    }
 
     try {
         $jsonValue = $result;

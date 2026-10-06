@@ -39,6 +39,8 @@ func main() {
 	mux.HandleFunc("/api/index", handleIndex)
 	mux.HandleFunc("/api/file", handleFile)
 	mux.HandleFunc("/api/terminal", handleTerminal)
+	mux.HandleFunc("/api/terminal/close", handleTerminalClose)
+	mux.HandleFunc("/api/terminal/shutdown", handleTerminalShutdown)
 	mux.HandleFunc("/api/ssh/connections", handleSSHConnections)
 	mux.HandleFunc("/api/state/load", handleStateLoad)
 	mux.HandleFunc("/api/state/save", handleStateSave)

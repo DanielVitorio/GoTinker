@@ -4,7 +4,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -16,19 +15,23 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
-	"unicode/utf16"
 	"unsafe"
 )
 
 const (
 	electronVersion = "44.5.1"
-	appVersion      = "1.3.17"
+	appVersion      = "1.3.48"
 )
 
 func main() {
 	runtime.LockOSThread()
 
 	base, err := installBase()
+	if err != nil {
+		fail(err)
+		return
+	}
+	cmderRoot, err := installCmder(base)
 	if err != nil {
 		fail(err)
 		return
@@ -57,14 +60,13 @@ func main() {
 		fail(err)
 		return
 	}
-	launcherPath, err := installLauncher(appDir, filepath.Join(appDir, "assets", "app.ico"))
+	_, err = installLauncher(appDir, filepath.Join(appDir, "assets", "app.ico"))
 	if err != nil {
 		fail(fmt.Errorf("não foi possível preparar o launcher do Go Tinker: %w", err))
 		return
 	}
-	_ = updatePinnedShortcuts(launcherPath, filepath.Join(appDir, "assets", "app.ico"))
-
-	cmd := exec.Command(runtimeExe, appDir)
+	arguments := append([]string{appDir}, os.Args[1:]...)
+	cmd := exec.Command(runtimeExe, arguments...)
 	cmd.Dir = runtimeDir
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
@@ -72,6 +74,7 @@ func main() {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
+	cmd.Env = append(cmd.Env, "GOTINKER_CMDER_ROOT="+cmderRoot)
 	if err := cmd.Start(); err != nil {
 		fail(fmt.Errorf("não foi possível iniciar o Go Tinker: %w", err))
 	}
@@ -79,16 +82,24 @@ func main() {
 
 func installLauncher(appDir, iconPath string) (string, error) {
 	launcherPath := filepath.Join(appDir, "GoTinkerLauncher.exe")
-	if _, err := os.Stat(launcherPath); errors.Is(err, os.ErrNotExist) {
-		sourcePath, err := os.Executable()
-		if err != nil {
-			return "", err
-		}
+	sourcePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	sourceAbs, sourceErr := filepath.Abs(sourcePath)
+	targetAbs, targetErr := filepath.Abs(launcherPath)
+	if sourceErr != nil || targetErr != nil {
+		return "", errors.Join(sourceErr, targetErr)
+	}
+	if !strings.EqualFold(sourceAbs, targetAbs) {
 		source, err := os.Open(sourcePath)
 		if err != nil {
 			return "", err
 		}
 		tempPath := filepath.Join(appDir, fmt.Sprintf(".GoTinkerLauncher.installing-%d.exe", os.Getpid()))
+		backupPath := filepath.Join(appDir, fmt.Sprintf(".GoTinkerLauncher.previous-%d.exe", os.Getpid()))
+		_ = os.Remove(tempPath)
+		_ = os.Remove(backupPath)
 		output, err := os.Create(tempPath)
 		if err != nil {
 			_ = source.Close()
@@ -107,58 +118,24 @@ func installLauncher(appDir, iconPath string) (string, error) {
 			}
 			return "", closeSourceErr
 		}
+		if _, err := os.Stat(launcherPath); err == nil {
+			if err := os.Rename(launcherPath, backupPath); err != nil {
+				_ = os.Remove(tempPath)
+				return "", err
+			}
+		}
 		if err := os.Rename(tempPath, launcherPath); err != nil {
 			_ = os.Remove(tempPath)
+			_ = os.Rename(backupPath, launcherPath)
 			return "", err
 		}
-	} else if err != nil {
-		return "", err
+		_ = os.Remove(backupPath)
 	}
 	if err := setExecutableIcon(launcherPath, iconPath); err != nil {
 		return "", err
 	}
 	return launcherPath, nil
 }
-
-func updatePinnedShortcuts(targetPath, iconPath string) error {
-	appData := strings.TrimSpace(os.Getenv("APPDATA"))
-	if appData == "" {
-		return nil
-	}
-	pinnedDir := filepath.Join(appData, "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar")
-	entries, err := os.ReadDir(pinnedDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	hasShortcut := false
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".lnk") {
-			hasShortcut = true
-			break
-		}
-	}
-	if !hasShortcut {
-		return nil
-	}
-	script := `$ErrorActionPreference='Stop';$folder=Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar';if(Test-Path $folder){$shell=New-Object -ComObject WScript.Shell;Get-ChildItem -LiteralPath $folder -Filter '*.lnk'|ForEach-Object{$link=$shell.CreateShortcut($_.FullName);if($link.TargetPath -match '\\GoTinker\\(runtime\\[^\\]+\\GoTinkerRuntime|app\\[^\\]+\\(electron\\GoTinkerRuntime|GoTinkerLauncher))\.exe$'){$link.TargetPath=$env:GOTINKER_PIN_TARGET;$link.Arguments='';$link.WorkingDirectory=Split-Path -Parent $env:GOTINKER_PIN_TARGET;$link.IconLocation=$env:GOTINKER_PIN_ICON+',0';$link.Description='Go Tinker';$link.Save();if($_.Name -eq 'Electron.lnk'){$newPath=Join-Path $folder 'Go Tinker.lnk';if(-not(Test-Path -LiteralPath $newPath)){Move-Item -LiteralPath $_.FullName -Destination $newPath}}}}}`
-	wide := utf16.Encode([]rune(script))
-	encodedBytes := make([]byte, len(wide)*2)
-	for index, unit := range wide {
-		binary.LittleEndian.PutUint16(encodedBytes[index*2:], unit)
-	}
-	encoded := base64.StdEncoding.EncodeToString(encodedBytes)
-	command := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	command.Env = append(os.Environ(), "GOTINKER_PIN_TARGET="+targetPath, "GOTINKER_PIN_ICON="+iconPath)
-	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("falha ao corrigir atalho fixado: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
 func setExecutableIcon(executablePath, iconPath string) error {
 	icon, err := os.ReadFile(iconPath)
 	if err != nil {

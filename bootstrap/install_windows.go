@@ -169,6 +169,7 @@ func installApp(base string) (string, error) {
 	files := map[string]string{
 		"payload/package.json":                 "package.json",
 		"payload/main.js":                      "main.js",
+		"payload/preload.js":                   "preload.js",
 		"payload/backend/gotinker-backend.exe": filepath.Join("backend", "gotinker-backend.exe"),
 		"payload/assets/app.ico":               filepath.Join("assets", "app.ico"),
 	}
@@ -210,6 +211,7 @@ func appReady(appDir, marker string) bool {
 	required := []string{
 		"package.json",
 		"main.js",
+		"preload.js",
 		filepath.Join("backend", "gotinker-backend.exe"),
 		filepath.Join("assets", "app.ico"),
 	}
@@ -221,6 +223,128 @@ func appReady(appDir, marker string) bool {
 	}
 
 	return true
+}
+
+func installCmder(base string) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	source := filepath.Join(filepath.Dir(executable), "cmder")
+	initScript := filepath.Join(source, "vendor", "init.bat")
+	destination := filepath.Join(base, "cmder")
+	if info, statErr := os.Stat(initScript); statErr != nil || info.IsDir() {
+		if installedInfo, installedErr := os.Stat(filepath.Join(destination, "vendor", "init.bat")); installedErr == nil && !installedInfo.IsDir() {
+			return destination, nil
+		}
+		return "", fmt.Errorf("Cmder integrado não foi encontrado em %s", source)
+	}
+	version, _ := os.ReadFile(filepath.Join(source, "Version"))
+	marker := filepath.Join(destination, ".gotinker-version")
+	installed, _ := os.ReadFile(marker)
+	if strings.TrimSpace(string(installed)) == strings.TrimSpace(string(version)) {
+		if info, statErr := os.Stat(filepath.Join(destination, "vendor", "init.bat")); statErr == nil && !info.IsDir() {
+			return destination, nil
+		}
+	}
+	temp := filepath.Join(base, fmt.Sprintf(".cmder.installing-%d", os.Getpid()))
+	_ = os.RemoveAll(temp)
+	if err := copyCmderTree(source, temp); err != nil {
+		_ = os.RemoveAll(temp)
+		return "", err
+	}
+	config := filepath.Join(destination, "config")
+	if _, statErr := os.Stat(config); statErr == nil {
+		if err := copyDirectory(config, filepath.Join(temp, "config")); err != nil {
+			_ = os.RemoveAll(temp)
+			return "", err
+		}
+	} else if err := os.MkdirAll(filepath.Join(temp, "config"), 0o755); err != nil {
+		_ = os.RemoveAll(temp)
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(temp, ".gotinker-version"), version, 0o644); err != nil {
+		_ = os.RemoveAll(temp)
+		return "", err
+	}
+	_ = os.RemoveAll(destination)
+	if err := os.Rename(temp, destination); err != nil {
+		_ = os.RemoveAll(temp)
+		return "", err
+	}
+	return destination, nil
+}
+
+func copyCmderTree(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if relative == "config" || strings.HasPrefix(relative, "config"+string(os.PathSeparator)) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		return copyFile(path, target, info.Mode().Perm())
+	})
+}
+
+func copyDirectory(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		return copyFile(path, target, info.Mode().Perm())
+	})
+}
+
+func copyFile(source, destination string, mode os.FileMode) error {
+	if mode == 0 {
+		mode = 0o644
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 func download(source, target string, report progressReporter) error {

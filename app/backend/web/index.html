@@ -7,33 +7,33 @@
 <title>Go Tinker</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/vendor/xterm.css">
 
 </head>
 <body>
 <div class="app" id="app">
     <header class="topbar">
         <div class="brand"><div class="logo"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="5" y="7" width="54" height="50" rx="8" fill="#111318" stroke="#39404a" stroke-width="2"/><path d="M6 19h52" stroke="#39404a" stroke-width="2"/><circle cx="14" cy="13" r="2" fill="#67707c"/><circle cx="21" cy="13" r="2" fill="#67707c"/><circle cx="28" cy="13" r="2" fill="#67707c"/><path d="m17 29 8 7-8 7" fill="none" stroke="#e5e7eb" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M31 43h13" stroke="#f87171" stroke-width="3.5" stroke-linecap="round"/></svg></div><div class="brand-name">Go Tinker <span>Desktop</span></div></div>
-        <button class="project-picker" id="projectPicker" type="button" title="Selecionar projeto Laravel">
-            <span class="project-icon">▱</span><span class="project-path project-placeholder" id="projectPath">Selecionar projeto Laravel…</span>
+        <button class="project-picker" id="projectPicker" type="button" data-i18n-title="selectProject">
+            <span class="project-icon"><svg class="folder-svg" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 19V9a2 2 0 0 0-2-2h-6.764a2 2 0 0 1-1.789-1.106l-.894-1.788A2 2 0 0 0 8.763 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2"/></svg></span><span class="project-path project-placeholder" id="projectPath">Selecionar projeto Laravel…</span>
         </button>
-        <div class="status-pill"><span class="status-dot" id="statusDot"></span><span class="status-text" id="statusText">Sem projeto</span></div>
-        <button class="btn btn-ghost" id="savedBtn" type="button">☆ <span class="label-hide">Salvos</span></button>
-        <button class="btn btn-ghost" id="historyBtn" type="button">↶ <span class="label-hide">Histórico</span></button>
-        <button class="btn" id="saveBtn" type="button">Salvar <span style="color:#646b75">Ctrl+S</span></button>
+        <div class="language-picker"><button class="language-current" id="languageBtn" type="button" aria-label="Idioma" title="Idioma" data-i18n-title="language"><span id="languageFlag"></span></button><div class="language-menu hidden" id="languageMenu"></div></div>
+        <button class="btn btn-ghost" id="savedBtn" type="button">☆ <span class="label-hide" data-i18n="saved">Salvos</span></button>
+        <button class="btn btn-ghost" id="historyBtn" type="button">↶ <span class="label-hide" data-i18n="history">Histórico</span></button>
+        <button class="btn" id="saveBtn" type="button"><span data-i18n="save">Salvar</span> <span style="color:#646b75">Ctrl+S</span></button>
         <button class="btn btn-primary" id="runBtn" type="button">▶ Executar <span style="opacity:.72">Ctrl+Enter</span></button>
     </header>
 
     <div class="tabbar">
         <div class="tabs" id="tabs"></div>
-        <button class="new-tab" id="newTabBtn" type="button" title="Nova aba">+</button>
-        <div class="tab-actions"><button class="btn btn-ghost" id="reindexBtn" type="button" title="Reler classes e Models do projeto">↻ Indexar</button></div>
+        <div class="tab-actions"><button class="btn btn-ghost" id="reindexBtn" type="button" title="Reler classes e Models do projeto">↻ <span data-i18n="reindex">Indexar</span></button></div>
     </div>
 
     <main class="workspace" id="workspace">
         <section class="panel panel-left">
             <div class="panel-header">
-                <div class="heading"><span class="terminal-symbol">&gt;_</span><div class="heading-text"><strong>Code entry</strong><small id="editorSubtitle">PHP / Laravel Tinker</small></div></div>
-                <div class="panel-actions"><button class="btn btn-ghost" id="openFileBtn" type="button">Abrir arquivo</button><button class="btn btn-ghost" id="saveFileBtn" type="button" disabled>Salvar arquivo</button><span class="mini-badge" id="indexBadge">0 símbolos</span><button class="btn btn-ghost" id="clearCodeBtn" type="button">Limpar</button></div>
+                <div class="heading"><span class="terminal-symbol">&gt;_</span><div class="heading-text"><strong data-i18n="codeEntry">Code entry</strong><small id="editorSubtitle">PHP / Laravel Tinker</small></div></div>
+                <div class="panel-actions"><button class="btn btn-ghost" id="openFileBtn" type="button" data-i18n="openFile">Abrir arquivo</button><button class="btn btn-ghost" id="saveFileBtn" type="button" disabled data-i18n="saveFile">Salvar arquivo</button><button class="btn btn-ghost" id="terminalToggleBtn" type="button" title="Terminal (Ctrl+`)">⌁ <span data-i18n="terminal">Terminal</span></button><span class="mini-badge" id="indexBadge">0 símbolos</span><button class="btn btn-ghost" id="clearCodeBtn" type="button" data-i18n="clear">Limpar</button></div>
             </div>
             <div class="editor-shell">
                 <div class="editor-toolbar"><span class="prompt">tinker</span><span>›</span><span class="crumb" id="crumb">sem projeto</span><span class="spacer"></span><span id="cursorPos">Ln 1, Col 1</span></div>
@@ -44,15 +44,15 @@
                         <div class="placeholder" id="placeholder">App\Models\User::query()-&gt;latest()-&gt;first();</div>
                         <textarea class="code-input" id="code" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Código PHP"></textarea>
                         <div class="autocomplete" id="autocomplete" role="listbox"></div>
-                        <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Enter</kbd><span>executar</span><span>·</span><kbd>Tab</kbd><span>autocomplete</span></div>
+                    <div class="shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Enter</kbd><span data-i18n="run">executar</span><span>·</span><kbd>Tab</kbd><span data-i18n="autocomplete">autocomplete</span></div>
                     </div>
                 </div>
             </div>
-        <div class="terminal-resizer" id="terminalResizer" aria-hidden="true"></div>
-        <section class="terminal-panel hidden" id="terminalPanel">
-            <div class="terminal-header"><strong>Terminal do projeto</strong><span class="terminal-project" id="terminalProject"></span><span class="spacer"></span><button class="btn btn-ghost" id="clearTerminalBtn" type="button">Limpar</button><button class="btn btn-ghost" id="closeTerminalBtn" type="button">×</button></div>
-            <div class="terminal-output" id="terminalOutput"></div>
-            <form class="terminal-command" id="terminalForm"><span>›</span><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Comando no diretório do projeto"><button class="btn btn-primary" type="submit">Executar</button></form>
+        <div class="terminal-resizer" id="terminalResizer" aria-hidden="true" hidden></div>
+        <section class="terminal-panel hidden" id="terminalPanel" hidden>
+            <div class="terminal-header"><strong data-i18n="terminalTitle">Cmder</strong><span class="terminal-project" id="terminalProject"></span><span class="spacer"></span><div class="terminal-menu-wrap"><button class="btn btn-ghost terminal-menu-button" id="terminalMenuBtn" type="button" data-i18n-title="terminalOptions" aria-label="Opções do terminal"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg></button><div class="terminal-menu hidden" id="terminalMenu"><button type="button" id="terminalCopyBtn" data-i18n="terminalCopy">Copiar seleção</button><button type="button" id="terminalPasteBtn" data-i18n="terminalPaste">Colar</button><button type="button" id="createAliasBtn" data-i18n="createAlias">Criar alias</button></div></div><button class="btn btn-ghost" id="closeTerminalBtn" type="button" aria-label="Fechar">×</button></div>
+            <div class="cmder-host" id="cmderHost"></div>
+            <div class="terminal-tabs" id="terminalTabs"></div>
         </section>
         </section>
 
@@ -60,71 +60,102 @@
 
         <section class="panel panel-right">
             <div class="panel-header">
-                <div class="heading"><span class="terminal-symbol">◆</span><div class="heading-text"><strong>Resposta</strong><small id="outputSubtitle">resultado do Laravel</small></div></div>
-                <div class="panel-actions"><span class="mini-badge" id="resultType">—</span><button class="btn btn-ghost" id="copyBtn" type="button">Copiar</button><button class="btn btn-ghost" id="clearOutputBtn" type="button">Limpar</button></div>
+                <div class="heading"><span class="terminal-symbol response-icon"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="none" stroke="#eed49f" stroke-linecap="round" stroke-linejoin="round" d="M4.5 2.5H4c-.75 0-1.5.75-1.5 1.5v2c0 1.1-1 2-1.83 2c.83 0 1.83.9 1.83 2v2c0 .75.75 1.5 1.5 1.5h.5m7-11h.5c.75 0 1.5.75 1.5 1.5v2c0 1.1 1 2 1.83 2c-.83 0-1.83.9-1.83 2v2c0 .74-.75 1.5-1.5 1.5h-.5m-6.5-3a.5.5 0 1 0 0-1a.5.5 0 0 0 0 1m3 0a.5.5 0 1 0 0-1a.5.5 0 0 0 0 1m3 0a.5.5 0 1 0 0-1a.5.5 0 0 0 0 1"/></svg></span><div class="heading-text"><strong data-i18n="response">Resposta</strong><small id="outputSubtitle">resultado do Laravel</small></div></div>
+                <div class="panel-actions"><span class="mini-badge" id="resultType">—</span><button class="btn btn-ghost" id="copyBtn" type="button" data-i18n="copy">Copiar</button><button class="btn btn-ghost" id="clearOutputBtn" type="button" data-i18n="clear">Limpar</button></div>
             </div>
             <div class="output-shell">
-                <div class="output-toolbar"><span id="durationLabel">pronto</span><span class="spacer"></span><div class="view-switch"><button class="view-btn active" data-view="auto" type="button">Auto</button><button class="view-btn" data-view="terminal" type="button">Terminal</button><button class="view-btn" data-view="json" type="button">JSON</button></div></div>
-                <div class="output-scroll"><pre class="output empty" id="output">A resposta do Tinker aparecerá aqui.</pre></div>
+                <div class="output-toolbar"><span id="durationLabel">pronto</span><span class="spacer"></span><div class="view-switch"><button class="view-btn active" data-view="auto" type="button" data-i18n="auto">Auto</button><button class="view-btn" data-view="terminal" type="button" data-i18n="terminal">Terminal</button><button class="view-btn" data-view="json" type="button" data-i18n="json">JSON</button><button class="view-btn" data-view="browser" type="button" data-i18n="browser">Navegador</button></div></div>
+                <div class="browser-toolbar" id="browserToolbar" hidden><form id="browserRouteForm"><span class="browser-route-path" id="browserRoutePath"></span><div class="browser-route-params" id="browserRouteParams"></div><button class="btn btn-primary" id="browserPreviewBtn" type="submit">Gerar resposta</button></form></div>
+                <div class="output-scroll" id="outputScroll"><pre class="output empty" id="output">A resposta do Tinker aparecerá aqui.</pre></div>
+                <div class="browser-container" id="browserContainer" hidden><iframe id="responseBrowser" title="Prévia da resposta" sandbox="allow-forms allow-scripts allow-downloads" referrerpolicy="no-referrer" hidden></iframe><div class="browser-empty" id="browserEmpty">Execute um código que retorne HTML ou registre uma rota para visualizar a resposta aqui.</div></div>
             </div>
         </section>
     </main>
 
     <footer class="statusbar">
-        <span class="status-item" id="phpStatus">PHP —</span><span class="status-item" id="laravelStatus">Laravel —</span><span class="status-item" id="storageStatus">SQLite —</span><span class="spacer"></span><span class="status-item save-state" id="saveState">alterações salvas</span><span class="status-item" id="historyCount">0 execuções</span>
+        <span class="status-item" id="phpStatus">PHP —</span><span class="status-item" id="laravelStatus" hidden></span><span class="status-item" id="storageStatus">SQLite —</span><span class="spacer"></span><span class="status-item save-state" id="saveState">alterações salvas</span><span class="status-item" id="historyCount">0 execuções</span>
     </footer>
 </div>
 
 <div class="project-loading hidden" id="projectLoading" role="status" aria-live="polite">
-    <div class="project-loading-card"><span class="project-loading-spinner"></span><strong>Carregando projeto</strong><span id="projectLoadingDetail">Lendo as classes e bibliotecas instaladas…</span></div>
+    <div class="project-loading-card"><div class="loading-brand"><span class="loading-brand-mark">GT</span><span class="loading-brand-text">GoTinker</span></div><div class="loading-copy"><strong data-i18n="loadingTitle">Preparando seu projeto</strong><span id="projectLoadingDetail" data-i18n="loadingDetail">Lendo as classes e bibliotecas instaladas…</span></div><div class="loading-track"><span></span></div></div>
 </div>
 
 <div class="modal-backdrop" id="folderModal">
     <div class="modal">
-        <div class="modal-header"><span style="color:#eab75d">▱</span><strong>Abrir projeto Laravel</strong><small>navegue por qualquer disco</small><span class="spacer"></span><button class="btn" id="addSSHBtn" type="button">+ Conexão SSH</button><button class="btn btn-icon" data-close="folderModal" type="button">×</button></div>
+        <div class="modal-header"><span class="project-icon"><svg class="folder-svg" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 19V9a2 2 0 0 0-2-2h-6.764a2 2 0 0 1-1.789-1.106l-.894-1.788A2 2 0 0 0 8.763 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2"/></svg></span><strong data-i18n="openProject">Abrir projeto Laravel</strong><small data-i18n="browseDrives">navegue por qualquer disco</small><span class="spacer"></span><button class="btn" id="addSSHBtn" type="button" data-i18n="addSSH">+ Conexão SSH</button><button class="btn btn-icon" data-close="folderModal" type="button">×</button></div>
         <div class="modal-body">
-            <div class="folder-path-row"><input class="input" id="folderPathInput" placeholder="C:\projetos\meu-laravel"><button class="btn" id="folderGoBtn" type="button">Ir</button><button class="btn" id="folderDrivesBtn" type="button">Discos</button></div>
+            <div class="folder-path-row"><input class="input" id="folderPathInput" placeholder="C:\projetos\meu-laravel"><button class="btn" id="folderGoBtn" type="button" data-i18n="go">Ir</button><button class="btn" id="folderDrivesBtn" type="button" data-i18n="drives">Discos</button></div>
             <div class="drive-grid" id="driveGrid"></div>
             <div class="file-list" id="folderList"><div class="empty-list">Carregando…</div></div>
         </div>
-        <div class="modal-footer"><span style="margin-right:auto;color:#626974;font:9px var(--mono)" id="folderHint">Selecione uma pasta que contenha o arquivo artisan.</span><button class="btn" data-close="folderModal" type="button">Cancelar</button><button class="btn" id="openSelectedFileBtn" type="button" disabled>Abrir arquivo</button><button class="btn btn-primary" id="folderSelectBtn" type="button" disabled>Usar esta pasta</button></div>
+        <div class="modal-footer"><span style="margin-right:auto;color:#626974;font:9px var(--mono)" id="folderHint" data-i18n="selectArtisan">Selecione uma pasta que contenha o arquivo artisan.</span><button class="btn" data-close="folderModal" type="button" data-i18n="cancel">Cancelar</button><button class="btn" id="openSelectedFileBtn" type="button" disabled data-i18n="openFile">Abrir arquivo</button><button class="btn btn-primary" id="folderSelectBtn" type="button" disabled data-i18n="useFolder">Usar esta pasta</button></div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="sshModal">
     <form class="modal small" id="sshForm">
-        <div class="modal-header"><strong>Conexão SSH</strong><span class="spacer"></span><button class="btn btn-icon" data-close="sshModal" type="button">×</button></div>
-        <div class="modal-body"><div class="save-form"><input class="input" id="sshName" placeholder="Nome da conexão"><div class="folder-path-row"><input class="input" id="sshHost" placeholder="Servidor ou IP"><input class="input" id="sshPort" type="number" value="22" min="1" max="65535"></div><div class="folder-path-row"><input class="input" id="sshUser" placeholder="Usuário"><select class="input" id="sshPlatform"><option value="linux">Linux</option><option value="windows">Windows</option></select></div><input class="input" id="sshPassword" type="password" placeholder="Senha (opcional)"><label class="save-help"><input id="sshSavePassword" type="checkbox"> Salvar senha criptografada com DPAPI neste usuário do Windows</label><div class="save-help">A senha salva fica protegida pelo Windows e não é exibida ao reabrir o formulário. A autenticação também pode usar as chaves SSH configuradas no OpenSSH.</div></div></div>
-        <div class="modal-footer"><button class="btn" data-close="sshModal" type="button">Cancelar</button><button class="btn btn-primary" type="submit">Salvar conexão</button></div>
+        <div class="modal-header"><strong data-i18n="sshConnection">Conexão SSH</strong><span class="spacer"></span><button class="btn btn-icon" data-close="sshModal" type="button">×</button></div>
+        <div class="modal-body"><div class="save-form"><input class="input" id="sshName" placeholder="Nome da conexão" data-i18n-placeholder="connectionName"><div class="folder-path-row"><input class="input" id="sshHost" placeholder="Servidor ou IP" data-i18n-placeholder="server"><input class="input" id="sshPort" type="number" value="22" min="1" max="65535"></div><div class="folder-path-row"><input class="input" id="sshUser" placeholder="Usuário" data-i18n-placeholder="user"><select class="input" id="sshPlatform"><option value="linux">Linux</option><option value="windows">Windows</option></select></div><input class="input" id="sshPassword" type="password" placeholder="Senha (opcional)" data-i18n-placeholder="passwordOptional"><label class="save-help"><input id="sshSavePassword" type="checkbox"> <span data-i18n="savePasswordDPAPI">Salvar senha criptografada com DPAPI neste usuário do Windows</span></label><div class="save-help" data-i18n="sshHelp">A senha salva fica protegida pelo Windows e não é exibida ao reabrir o formulário. A autenticação também pode usar as chaves SSH configuradas no OpenSSH.</div></div></div>
+        <div class="modal-footer"><button class="btn" data-close="sshModal" type="button" data-i18n="cancel">Cancelar</button><button class="btn btn-primary" type="submit" data-i18n="saveConnection">Salvar conexão</button></div>
     </form>
 </div>
 
 <div class="modal-backdrop" id="saveModal">
     <div class="modal small">
-        <div class="modal-header"><strong>Salvar snippet</strong><span class="spacer"></span><button class="btn btn-icon" data-close="saveModal" type="button">×</button></div>
-        <div class="modal-body"><div class="save-form"><label for="snippetName" style="font-size:10px;color:#8a909a">Nome</label><input class="input" id="snippetName" placeholder="Ex.: Buscar usuários ativos"><div class="save-help">O código da aba atual será salvo no SQLite e poderá ser aberto novamente em “Salvos”. As abas também são restauradas automaticamente ao reabrir o aplicativo.</div></div></div>
-        <div class="modal-footer"><button class="btn" data-close="saveModal" type="button">Cancelar</button><button class="btn btn-primary" id="confirmSaveBtn" type="button">Salvar</button></div>
+        <div class="modal-header"><strong data-i18n="saveSnippet">Salvar snippet</strong><span class="spacer"></span><button class="btn btn-icon" data-close="saveModal" type="button">×</button></div>
+        <div class="modal-body"><div class="save-form"><label for="snippetName" style="font-size:10px;color:#8a909a" data-i18n="snippetName">Nome</label><input class="input" id="snippetName" placeholder="Ex.: Buscar usuários ativos"><label for="snippetAnnotation" style="font-size:10px;color:#8a909a" data-i18n="annotation">Anotação</label><textarea class="input snippet-annotation" id="snippetAnnotation" placeholder="Explique o que este código faz" data-i18n-placeholder="annotationPlaceholder"></textarea><label style="font-size:10px;color:#8a909a" data-i18n="folder">Pasta</label><div class="snippet-folder-choice"><span id="snippetFolderPath">Sem pasta</span><button class="btn" id="chooseSnippetFolderBtn" type="button" data-i18n="chooseFolder">Escolher pasta</button></div><div class="save-help" data-i18n="saveHelp">As pastas e subpastas organizam seus snippets salvos no SQLite.</div></div></div>
+        <div class="modal-footer"><button class="btn" data-close="saveModal" type="button" data-i18n="cancel">Cancelar</button><button class="btn btn-primary" id="confirmSaveBtn" type="button" data-i18n="save">Salvar</button></div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="savedModal">
-    <div class="modal">
-        <div class="modal-header"><strong>Snippets salvos</strong><small id="savedCount"></small><span class="spacer"></span><button class="btn btn-icon" data-close="savedModal" type="button">×</button></div>
-        <div class="modal-body"><div class="collection-list" id="savedList"></div></div>
-        <div class="modal-footer"><button class="btn" data-close="savedModal" type="button">Fechar</button></div>
+    <div class="modal saved-modal">
+        <div class="modal-header"><strong data-i18n="savedCollection">Collections</strong><small id="savedCount"></small><span class="spacer"></span><button class="btn" id="importSavedBtn" type="button" data-i18n="import">Importar</button><button class="btn" id="exportSavedBtn" type="button" data-i18n="exportCollection">Exportar collection</button><button class="btn btn-icon" data-close="savedModal" type="button">×</button></div>
+        <div class="modal-body saved-browser"><aside class="saved-sidebar"><div class="saved-sidebar-heading"><span>WORKSPACE</span><span id="savedFolderCount"></span></div><div class="saved-folder-tree" id="savedFolderTree"></div></aside><section class="saved-content"><div class="saved-content-toolbar"><div class="saved-content-title"><strong id="savedFolderTitle">GoTinker</strong><span id="savedFolderSummary"></span></div><input class="input" id="savedSearch" placeholder="Filtrar snippets" type="search" data-i18n-placeholder="filterSnippets"></div><div class="collection-list" id="savedList"></div></section></div>
+        <div class="modal-footer"><button class="btn" data-close="savedModal" type="button" data-i18n="close">Fechar</button></div>
+    </div>
+</div>
+<input id="savedImportFile" type="file" accept=".json,.php,application/json,text/plain" hidden>
+<div class="saved-folder-context-menu" id="savedFolderContextMenu" role="menu"><button class="danger" id="deleteSavedFolderContextBtn" type="button" role="menuitem">Excluir pasta</button></div>
+
+<div class="modal-backdrop" id="snippetFolderModal">
+    <div class="modal small folder-browser-modal">
+        <div class="modal-header"><strong id="snippetFolderModalTitle" data-i18n="chooseFolderTitle">Escolher pasta</strong><span class="spacer"></span><button class="btn btn-icon" data-close="snippetFolderModal" type="button">×</button></div>
+        <div class="modal-body"><div class="folder-browser-path"><span data-i18n="local">Local</span><strong id="snippetFolderBreadcrumb">Sem pasta</strong></div><div class="folder-browser-actions"><input class="input" id="newSnippetFolderName" placeholder="Nome da nova subpasta"><button class="btn" id="createSnippetFolderBtn" type="button" data-i18n="newFolder">Nova pasta</button><button class="btn btn-ghost danger" id="deleteSnippetFolderBtn" type="button" disabled data-i18n="delete">Excluir</button></div><div class="folder-browser-list" id="snippetFolderList"></div></div>
+        <div class="modal-footer"><button class="btn" id="chooseNoSnippetFolderBtn" type="button" data-i18n="noFolder">Sem pasta</button><span class="spacer"></span><button class="btn" data-close="snippetFolderModal" type="button" data-i18n="cancel">Cancelar</button><button class="btn btn-primary" id="confirmSnippetFolderBtn" type="button" data-i18n="useFolder">Usar esta pasta</button></div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="deleteSnippetFolderModal">
+    <div class="modal small">
+        <div class="modal-header"><strong data-i18n="deleteFolderQuestion">Excluir pasta?</strong><span class="spacer"></span><button class="btn btn-icon" data-close="deleteSnippetFolderModal" type="button">×</button></div>
+        <div class="modal-body"><div class="save-help" id="deleteSnippetFolderMessage"></div></div>
+        <div class="modal-footer"><button class="btn" data-close="deleteSnippetFolderModal" type="button" data-i18n="cancel">Cancelar</button><button class="btn btn-primary danger" id="confirmDeleteSnippetFolderBtn" type="button" data-i18n="deleteFolder">Excluir pasta</button></div>
     </div>
 </div>
 
 <div class="modal-backdrop" id="historyModal">
     <div class="modal">
-        <div class="modal-header"><strong>Histórico de execuções</strong><small>últimas 100</small><span class="spacer"></span><button class="btn btn-icon" data-close="historyModal" type="button">×</button></div>
+        <div class="modal-header"><strong data-i18n="executionHistory">Histórico de execuções</strong><small data-i18n="latest100">últimas 100</small><span class="spacer"></span><button class="btn btn-icon" data-close="historyModal" type="button">×</button></div>
         <div class="modal-body"><div class="collection-list" id="historyList"></div></div>
-        <div class="modal-footer"><button class="btn danger" id="clearHistoryBtn" type="button">Limpar histórico</button><span style="flex:1"></span><button class="btn" data-close="historyModal" type="button">Fechar</button></div>
+        <div class="modal-footer"><button class="btn danger" id="clearHistoryBtn" type="button" data-i18n="clearHistory">Limpar histórico</button><span style="flex:1"></span><button class="btn" data-close="historyModal" type="button" data-i18n="close">Fechar</button></div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="aliasModal">
+    <div class="modal small">
+        <div class="modal-header"><strong data-i18n="aliasTitle">Criar alias Cmder</strong><span class="spacer"></span><button class="btn btn-icon" data-close="aliasModal" type="button">×</button></div>
+        <div class="modal-body"><label class="field"><span data-i18n="aliasName">Nome</span><input class="input" id="aliasName" autocomplete="off" data-i18n-placeholder="aliasNamePlaceholder" placeholder="ex: artisan"></label><label class="field"><span data-i18n="aliasCommand">Comando</span><input class="input" id="aliasCommand" autocomplete="off" data-i18n-placeholder="aliasCommandPlaceholder" placeholder="php artisan $*"></label><div class="save-help" data-i18n="aliasHelp">O Cmder salva o alias no perfil do usuário e o disponibiliza nas próximas sessões.</div></div>
+        <div class="modal-footer"><button class="btn" data-close="aliasModal" type="button" data-i18n="cancel">Cancelar</button><span class="spacer"></span><button class="btn btn-primary" id="confirmAliasBtn" type="button" data-i18n="createAlias">Criar alias</button></div>
     </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/terminal.js"></script>
 <script src="/app.js"></script>
 
 </body>

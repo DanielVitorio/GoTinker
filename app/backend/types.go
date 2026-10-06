@@ -8,18 +8,36 @@ import (
 )
 
 type runRequest struct {
-	Project string `json:"project"`
-	Code    string `json:"code"`
+	Project       string            `json:"project"`
+	Code          string            `json:"code"`
+	PreviewParams map[string]string `json:"previewParams,omitempty"`
 }
 
 type runResponse struct {
-	OK         bool   `json:"ok"`
-	Output     string `json:"output"`
-	JSON       string `json:"json,omitempty"`
-	ResultType string `json:"resultType,omitempty"`
-	ExitCode   int    `json:"exitCode"`
-	DurationMS int64  `json:"durationMs"`
-	Error      string `json:"error,omitempty"`
+	OK            bool              `json:"ok"`
+	Output        string            `json:"output"`
+	JSON          string            `json:"json,omitempty"`
+	PreviewHTML   string            `json:"previewHtml,omitempty"`
+	PreviewData   string            `json:"previewData,omitempty"`
+	PreviewMime   string            `json:"previewMime,omitempty"`
+	PreviewStatus int               `json:"previewStatus,omitempty"`
+	PreviewRoute  *previewRouteInfo `json:"previewRoute,omitempty"`
+	ResultType    string            `json:"resultType,omitempty"`
+	ExitCode      int               `json:"exitCode"`
+	DurationMS    int64             `json:"durationMs"`
+	Error         string            `json:"error,omitempty"`
+}
+
+type previewRouteInfo struct {
+	URI        string                  `json:"uri"`
+	Method     string                  `json:"method"`
+	Parameters []previewRouteParameter `json:"parameters"`
+	Missing    []string                `json:"missing,omitempty"`
+}
+
+type previewRouteParameter struct {
+	Name     string `json:"name"`
+	Optional bool   `json:"optional"`
 }
 
 type statusResponse struct {

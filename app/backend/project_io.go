@@ -1,14 +1,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -16,11 +13,6 @@ import (
 type fileRequest struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
-}
-
-type terminalRequest struct {
-	Project string `json:"project"`
-	Command string `json:"command"`
 }
 
 type sshConnection struct {
@@ -147,39 +139,4 @@ func findLaravelRoot(path string) string {
 		}
 		current = parent
 	}
-}
-
-func handleTerminal(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "método não permitido"})
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
-	var req terminalRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "requisição inválida"})
-		return
-	}
-	project, err := validateProject(req.Project)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-		return
-	}
-	command := strings.TrimSpace(req.Command)
-	if command == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "digite um comando"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-lc", command)
-	}
-	cmd.Dir = project
-	configureHidden(cmd)
-	output, runErr := cmd.CombinedOutput()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": runErr == nil, "output": string(output), "error": errorString(runErr)})
 }

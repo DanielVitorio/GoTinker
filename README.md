@@ -1,5 +1,16 @@
 # Go Tinker
 
+## Documentation by language
+
+- [English](docs/README.en.md)
+- [Português (Brasil)](docs/README.pt-BR.md)
+- [日本語](docs/README.ja.md)
+- [Русский](docs/README.ru.md)
+- [简体中文](docs/README.zh-CN.md)
+- [Español](docs/README.es.md)
+
+The desktop interface offers the same six languages. Select the flag button in the top bar. Language messages and flag SVGs live in `app/backend/web/lang/*.json`.
+
 Go Tinker is a standalone Windows desktop application for running Laravel Tinker code with a fast editor, project-aware autocomplete, persistent tabs, formatted output, execution history, snippets, and local SQLite persistence.
 
 The application uses a Go backend and a dedicated Electron desktop window. It does not open Opera, Chrome, or Edge, and it does not depend on Edge WebView2.

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog } = require('electron');
+const { app, BrowserWindow, Menu, dialog, clipboard, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -9,16 +9,20 @@ let backend = null;
 let backendPort = null;
 let quitting = false;
 let applicationURL = null;
+let terminalRequested = false;
 
 app.setAppUserModelId('GoTinker');
+ipcMain.handle('gotinker:clipboard-read', () => clipboard.readText());
+ipcMain.on('gotinker:clipboard-write', (_event, text) => clipboard.writeText(String(text || '')));
 
 const lock = app.requestSingleInstanceLock();
 
 if (!lock) {
     app.quit();
 } else {
-    app.on('second-instance', () => {
+    app.on('second-instance', (_event, commandLine) => {
         revealWindow();
+        if (commandLine.includes('--terminal')) requestTerminal();
     });
 
     app.whenReady().then(startApplication).catch(showStartupError);
@@ -34,10 +38,19 @@ async function startApplication() {
         await waitForBackend(backendPort, 45000);
         applicationURL = `http://127.0.0.1:${backendPort}/`;
         await mainWindow.loadURL(applicationURL);
+        if (process.argv.includes('--terminal') || terminalRequested) await mainWindow.webContents.executeJavaScript('window.GoTinkerRequestTerminal?.()');
         revealWindow();
     } catch (error) {
         showStartupError(error);
     }
+}
+
+function requestTerminal() {
+    terminalRequested = true;
+    if (!applicationURL || !mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.executeJavaScript('window.GoTinkerRequestTerminal?.()').then(() => {
+        terminalRequested = false;
+    }).catch(() => {});
 }
 
 function createWindow() {
@@ -55,6 +68,7 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
+            preload: path.join(__dirname, 'preload.js'),
             devTools: false
         }
     });
