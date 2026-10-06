@@ -395,7 +395,7 @@ async function loadProjectContext(project,force=false){
 }
 
 async function runCode(selectedCode=null){
-    if(running)return;saveEditorToTab();const tab=activeTab();if(!tab?.project){openFolderBrowser('');return;}const selection=els.code.selectionStart!==els.code.selectionEnd;const code=selectedCode!==null?selectedCode:(selection?els.code.value.slice(els.code.selectionStart,els.code.selectionEnd):tab.code);if(!code.trim()){showToast('Digite ou selecione algum código PHP.',true);els.code.focus();return;}
+    if(running)return;saveEditorToTab();const tab=activeTab();if(!tab?.project){openFolderBrowser('');return;}const selection=els.code.selectionStart!==els.code.selectionEnd;const code=selectedCode===null?(selection?els.code.value.slice(els.code.selectionStart,els.code.selectionEnd):tab.code):selectedCode;if(typeof code!=='string'||!code.trim()){showToast('Digite algum código PHP.',true);els.code.focus();return;}
     running=true;els.runBtn.disabled=true;els.runBtn.innerHTML='⏳ Executando…';els.durationLabel.textContent='executando';els.output.className='output';els.output.innerHTML='<span style="color:#777">Executando no Laravel…</span>';
     try{
         const res=await api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:tab.project,code})});
@@ -452,7 +452,7 @@ els.code.addEventListener('scroll',()=>{syncEditorScroll();if(els.autocomplete.c
 els.code.addEventListener('click',()=>{updateCursor();updateAutocomplete();});
 els.code.addEventListener('keyup',e=>{if(!['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key))updateCursor();});
 els.code.addEventListener('keydown',e=>{
-    if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();closeAutocomplete();const selected=els.code.selectionStart!==els.code.selectionEnd?els.code.value.slice(els.code.selectionStart,els.code.selectionEnd):'';runCode(selected);return;}
+    if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();closeAutocomplete();runCode();return;}
     if(e.ctrlKey&&e.key.toLowerCase()==='s'){e.preventDefault();closeAutocomplete();if(activeTab()?.filePath)saveProjectFile();else openSaveModal();return;}
     if(e.ctrlKey&&e.code==='Space'){e.preventDefault();updateAutocomplete(true);return;}
     if(els.autocomplete.classList.contains('open')){
@@ -468,7 +468,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')$$('.modal-backdrop.
 $$('[data-close]').forEach(b=>b.addEventListener('click',()=>closeModal($('#'+b.dataset.close))));
 $$('.modal-backdrop').forEach(m=>m.addEventListener('mousedown',e=>{if(e.target===m)closeModal(m)}));
 $$('.view-btn').forEach(b=>b.addEventListener('click',()=>{viewMode=b.dataset.view;renderOutput()}));
-els.runBtn.addEventListener('click',runCode);els.saveBtn.addEventListener('click',openSaveModal);els.confirmSaveBtn.addEventListener('click',saveSnippet);els.snippetName.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveSnippet()}});
+els.runBtn.addEventListener('click',()=>runCode());els.saveBtn.addEventListener('click',openSaveModal);els.confirmSaveBtn.addEventListener('click',saveSnippet);els.snippetName.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveSnippet()}});
 els.savedBtn.addEventListener('click',()=>{renderSaved();openModal(els.savedModal)});els.historyBtn.addEventListener('click',()=>{renderHistory();openModal(els.historyModal)});els.newTabBtn.addEventListener('click',()=>newTab());els.projectPicker.addEventListener('click',()=>openFolderBrowser(activeTab()?.project||state.lastProject||''));els.reindexBtn.addEventListener('click',()=>{const p=activeTab()?.project;if(p)loadProjectContext(p,true);else openFolderBrowser('')});
 els.folderGoBtn.addEventListener('click',()=>browseFolder(els.folderPathInput.value.trim()));els.folderPathInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();browseFolder(els.folderPathInput.value.trim())}});els.folderDrivesBtn.addEventListener('click',()=>browseFolder(''));els.folderSelectBtn.addEventListener('click',chooseCurrentFolder);
 els.clearCodeBtn.addEventListener('click',()=>{els.code.value='';refreshEditor();saveEditorToTab();schedulePersist();els.code.focus()});els.clearOutputBtn.addEventListener('click',()=>{const t=activeTab();if(t){t.output='';t.json='';t.resultType='';t.durationMs=0;t.ok=true;renderOutput();schedulePersist()}});

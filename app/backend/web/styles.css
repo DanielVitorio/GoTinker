@@ -16,7 +16,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .app{width:100%;height:100%;min-width:0;min-height:0;display:grid;grid-template-rows:48px 36px minmax(0,1fr) 24px;background:var(--bg)}
 .topbar{min-width:0;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--border);background:#0c0d10}
 .brand{display:flex;align-items:center;gap:9px;flex:0 0 auto;font-weight:750;letter-spacing:-.02em}
-.logo{width:29px;height:29px;border-radius:7px;display:grid;place-items:center;border:1px solid rgba(239,68,68,.48);background:var(--accentSoft);color:#ff7b7b;font:800 12px var(--mono)}
+.logo{width:31px;height:31px;border-radius:7px;display:grid;place-items:center;flex:0 0 auto}.logo svg{display:block;width:100%;height:100%}
 .brand-name{font-size:13px;white-space:nowrap}.brand-name span{color:#6b707a;font-weight:600;margin-left:4px}
 .project-picker{min-width:100px;flex:1;height:32px;display:flex;align-items:center;gap:8px;padding:0 9px;border:1px solid var(--border);border-radius:7px;background:#090a0c;cursor:pointer;overflow:hidden;text-align:left}
 .project-picker:hover{border-color:#373b45;background:#0d0f12}

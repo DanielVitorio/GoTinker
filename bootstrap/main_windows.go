@@ -3,6 +3,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -10,11 +13,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"unsafe"
 )
 
 const (
 	electronVersion = "44.5.1"
-	appVersion      = "1.3.12"
+	appVersion      = "1.3.15"
 )
 
 func main() {
@@ -41,6 +46,10 @@ func main() {
 		fail(err)
 		return
 	}
+	if err := setExecutableIcon(runtimeExe, filepath.Join(appDir, "assets", "app.ico")); err != nil {
+		fail(fmt.Errorf("não foi possível aplicar o ícone do Go Tinker ao runtime: %w", err))
+		return
+	}
 	if err := removeLegacyRuntimeApp(runtimeDir); err != nil {
 		fail(err)
 		return
@@ -57,6 +66,80 @@ func main() {
 	if err := cmd.Start(); err != nil {
 		fail(fmt.Errorf("não foi possível iniciar o Go Tinker: %w", err))
 	}
+}
+
+func setExecutableIcon(executablePath, iconPath string) error {
+	icon, err := os.ReadFile(iconPath)
+	if err != nil {
+		return err
+	}
+	if len(icon) < 22 || binary.LittleEndian.Uint16(icon[0:2]) != 0 || binary.LittleEndian.Uint16(icon[2:4]) != 1 || binary.LittleEndian.Uint16(icon[4:6]) != 1 {
+		return errors.New("arquivo ICO inválido")
+	}
+	imageSize := int(binary.LittleEndian.Uint32(icon[14:18]))
+	imageOffset := int(binary.LittleEndian.Uint32(icon[18:22]))
+	if imageSize < 1 || imageOffset < 22 || imageOffset+imageSize > len(icon) {
+		return errors.New("dados do ícone inválidos")
+	}
+
+	hash := sha256.Sum256(icon)
+	markerPath := executablePath + ".gotinker-icon"
+	if marker, readErr := os.ReadFile(markerPath); readErr == nil && strings.TrimSpace(string(marker)) == hex.EncodeToString(hash[:]) {
+		notifyWindowsIconChange()
+		return nil
+	}
+
+	group := make([]byte, 20)
+	copy(group[:6], icon[:6])
+	copy(group[6:14], icon[6:14])
+	binary.LittleEndian.PutUint32(group[14:18], uint32(imageSize))
+	binary.LittleEndian.PutUint16(group[18:20], 1)
+	image := icon[imageOffset : imageOffset+imageSize]
+
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	begin := kernel32.NewProc("BeginUpdateResourceW")
+	update := kernel32.NewProc("UpdateResourceW")
+	finish := kernel32.NewProc("EndUpdateResourceW")
+	pathPointer, err := syscall.UTF16PtrFromString(executablePath)
+	if err != nil {
+		return err
+	}
+	handle, _, callErr := begin.Call(uintptr(unsafe.Pointer(pathPointer)), 0)
+	if handle == 0 {
+		return callErr
+	}
+	failed := true
+	defer func() {
+		if failed {
+			finish.Call(handle, 1)
+		}
+	}()
+
+	for _, language := range []uintptr{0, 0x0409} {
+		if result, _, updateErr := update.Call(handle, 3, 1, language, uintptr(unsafe.Pointer(&image[0])), uintptr(len(image))); result == 0 {
+			if updateErr != syscall.Errno(0) {
+				return updateErr
+			}
+			return errors.New("falha ao atualizar o recurso do ícone")
+		}
+		if result, _, updateErr := update.Call(handle, 14, 1, language, uintptr(unsafe.Pointer(&group[0])), uintptr(len(group))); result == 0 {
+			if updateErr != syscall.Errno(0) {
+				return updateErr
+			}
+			return errors.New("falha ao atualizar o grupo do ícone")
+		}
+	}
+	if result, _, callErr := finish.Call(handle, 0); result == 0 {
+		return callErr
+	}
+	failed = false
+	notifyWindowsIconChange()
+	return os.WriteFile(markerPath, []byte(hex.EncodeToString(hash[:])), 0o644)
+}
+
+func notifyWindowsIconChange() {
+	shell32 := syscall.NewLazyDLL("shell32.dll")
+	shell32.NewProc("SHChangeNotify").Call(0x08000000, 0, 0, 0)
 }
 
 func removeLegacyRuntimeApp(runtimeDir string) error {
