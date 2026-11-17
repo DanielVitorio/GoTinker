@@ -1,0 +1,3 @@
+[submodule "submodules/cmder"]
+	path = submodules/cmder
+	url = https://github.com/cmderdev/cmder.git

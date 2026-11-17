@@ -1,0 +1,9 @@
+{
+  "name": "gotinker-desktop",
+  "version": "1.4.5",
+  "productName": "GoTinker",
+  "author": "Daniel Vitório Augusto",
+  "license": "SEE LICENSE IN LICENSE",
+  "main": "main.js",
+  "private": true
+}

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Go Tinker</title>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('gotinker-theme') === 'light' ? 'light' : 'dark'; } catch {}</script>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/vendor/quill/quill.snow.css">
+<link rel="stylesheet" data-name="vs/editor/editor.main" href="/vendor/monaco/vs/editor/editor.main.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app" id="app">
+    <header class="titlebar">
+        <div class="titlebar-left">
+            <span class="brand-logo" id="brandLogo"></span>
+            <span class="brand-name">Go Tinker</span>
+            <span class="workspace-name" data-i18n="myWorkspace">My Workspace</span>
+        </div>
+        <button class="search-box" id="searchBtn" type="button"><span class="search-text" data-i18n="searchPlaceholder">Search Go Tinker</span><kbd>Ctrl P</kbd></button>
+        <div class="titlebar-right">
+            <button class="icon-btn theme-btn" id="themeBtn" type="button"></button>
+            <button class="icon-btn" id="settingsBtn" type="button" data-i18n-title="settings"></button>
+        </div>
+    </header>
+    <div class="body">
+        <nav class="rail" id="rail">
+            <button class="rail-item" id="railCollections" data-view="collections" type="button"><span data-i18n="collections">Collections</span></button>
+            <button class="rail-item" id="railEnvironments" data-view="environments" type="button"><span data-i18n="environments">Environments</span></button>
+            <button class="rail-item" id="railHistory" data-view="history" type="button"><span data-i18n="history">History</span></button>
+        </nav>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-head">
+                <span class="sidebar-title" id="sidebarTitle" data-i18n="myWorkspace">My Workspace</span>
+                <div class="sidebar-head-actions">
+                    <button class="btn btn-sm" id="newBtn" type="button" data-i18n="new">New</button>
+                    <button class="btn btn-sm" id="importBtn" type="button" data-i18n="import">Import</button>
+                </div>
+            </div>
+            <div class="sidebar-toolbar">
+                <button class="icon-btn" id="sidebarAddBtn" type="button" data-i18n-title="create"></button>
+                <label class="filter-box"><span id="sidebarFilterIcon"></span><input id="sidebarFilter" type="search" spellcheck="false"></label>
+                <button class="icon-btn" id="sidebarMoreBtn" type="button" data-i18n-title="moreActions"></button>
+            </div>
+            <div class="sidebar-content" id="sidebarContent"></div>
+        </aside>
+        <div class="sidebar-resizer" id="sidebarResizer"></div>
+        <main class="main" id="main">
+            <div class="tabstrip" id="tabstrip"></div>
+            <div class="workarea">
+                <div class="request-view" id="requestView" hidden></div>
+                <div class="env-view" id="envView" hidden></div>
+                <div class="doc-view" id="docView" hidden></div>
+                <div class="empty-view" id="emptyView" hidden></div>
+            </div>
+            <div class="terminal-resizer" id="terminalResizer" hidden></div>
+            <section class="terminal-panel" id="terminalPanel" hidden></section>
+        </main>
+    </div>
+    <footer class="statusbar" id="statusbar"></footer>
+</div>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/quill/quill.js"></script>
+<script src="/vendor/monaco/vs/loader.js"></script>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
