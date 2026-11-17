@@ -2,6 +2,27 @@
 
 Go Tinker is a Windows desktop application for running PHP code inside Laravel projects. You write code in an editor with project-aware autocomplete, send it, and read the formatted result. Requests can be saved in collections, parameterized with variables and environments, and reopened later from history.
 
+<p align="center">
+  <img src="images/response.png" alt="Go Tinker running User::find(1) in a Laravel project, with the code on the left and the formatted JSON response on the right" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="images/image-1.png" alt="Go Tinker home screen with shortcuts to create a request, a collection or an environment, or open a PHP file"><br>
+      <sub><b>Home</b>: start a request, collection or environment</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="images/sugestions.png" alt="Autocomplete listing project and Composer classes while typing"><br>
+      <sub><b>Autocomplete</b>: project and Composer classes</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="images/settings.png" alt="Settings dialog with language, editor, layout and data folder options"><br>
+      <sub><b>Settings</b>: six languages, editor and layout</sub>
+    </td>
+  </tr>
+</table>
+
 ## Cloning
 
 Cmder is included as a Git submodule ([cmderdev/cmder](https://github.com/cmderdev/cmder)) in `submodules\cmder`. Clone with `--recurse-submodules`, otherwise that folder stays empty and the build fails:
@@ -368,6 +389,7 @@ GoTinker/
 ├── assets/                   application icon
 ├── bootstrap/                launcher and installer
 ├── docs/                     short guide per language
+├── images/                   screenshots used in this README
 ├── submodules/
 │   └── cmder/                Cmder (Git submodule)
 ├── LICENSE                   non-commercial license
@@ -783,6 +805,7 @@ GoTinker/
 ├── assets/                   ícone do aplicativo
 ├── bootstrap/                inicializador e instalador
 ├── docs/                     guia curto por idioma
+├── images/                   capturas de tela usadas neste README
 ├── submodules/
 │   └── cmder/                Cmder (submódulo Git)
 ├── LICENSE                   licença de uso não comercial
