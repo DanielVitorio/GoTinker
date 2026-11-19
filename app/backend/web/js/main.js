@@ -12,7 +12,7 @@ import {
     refreshEnvironmentDecorations, runSelection, setModelValue, setRuntimeError, showTab
 } from './editor.js';
 import { applyTheme, currentTheme, toggleTheme } from './theme.js';
-import { indexInfo, loadIndex } from './intellisense.js';
+import { indexInfo, loadIndex, refreshIndex } from './intellisense.js';
 import {
     applyLayout, editorReady, initRequestView, refreshDirty, refreshVariableIssues, renderRequest, setHint, setProjectInfo, setRunning, variableIssues
 } from './request.js';
@@ -980,6 +980,8 @@ async function boot() {
     renderAll();
     $('#app').classList.add('ready');
     window.addEventListener('beforeunload', persistBeacon);
+    window.addEventListener('focus', () => refreshIndex(activeProject()));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshIndex(activeProject()); });
     window.GoTinkerRequestTerminal = () => toggleTerminal(true);
     const project = activeProject();
     if (project) refreshProject(project);

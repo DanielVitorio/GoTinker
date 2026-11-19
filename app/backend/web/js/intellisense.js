@@ -170,8 +170,36 @@ export function setContextProvider(fn) {
 
 function projectEntry(project) {
     const key = String(project || '').toLowerCase();
-    if (!projects.has(key)) projects.set(key, { project, classes: new Map(), list: [], details: new Map(), loading: null, loaded: false });
+    if (!projects.has(key)) projects.set(key, { project, classes: new Map(), list: [], details: new Map(), loading: null, loaded: false, rev: '', checkedAt: 0, refreshing: null });
     return projects.get(key);
+}
+
+const STALE_MS = 2000;
+const REFRESH_WAIT_MS = 250;
+
+async function fetchIndex(entry, force) {
+    const rev = !force && entry.loaded ? entry.rev || undefined : undefined;
+    entry.checkedAt = Date.now();
+    const data = await api('/api/index?' + query({ project: entry.project, force: force ? '1' : undefined, rev }));
+    if (!data?.ok) throw new Error(data?.error || 'index');
+    if (data.unchanged) return false;
+    entry.classes = new Map();
+    entry.list = data.classes.map(([name, kind, origin]) => {
+        const cut = name.lastIndexOf('\\');
+        const item = { name, kind, short: name.slice(cut + 1), ns: cut > 0 ? name.slice(0, cut) : '', lowerShort: name.slice(cut + 1).toLowerCase(), own: origin === 'p' };
+        entry.classes.set(name.toLowerCase(), item);
+        return item;
+    });
+    entry.rev = data.rev || '';
+    if (force) entry.details.clear();
+    else {
+        for (const key of [...entry.details.keys()]) {
+            const item = entry.classes.get(key);
+            if (!item || item.own) entry.details.delete(key);
+        }
+    }
+    entry.loaded = true;
+    return true;
 }
 
 export function loadIndex(project, force = false) {
@@ -180,24 +208,27 @@ export function loadIndex(project, force = false) {
     if (entry.loading && !force) return entry.loading;
     if (entry.loaded && !force) return Promise.resolve(entry);
     bus.emit('index', { project, status: 'loading' });
-    entry.loading = api('/api/index?' + query({ project, force: force ? '1' : undefined })).then(data => {
-        if (!data?.ok) throw new Error(data?.error || 'index');
-        entry.classes = new Map();
-        entry.list = data.classes.map(([name, kind, origin]) => {
-            const cut = name.lastIndexOf('\\');
-            const item = { name, kind, short: name.slice(cut + 1), ns: cut > 0 ? name.slice(0, cut) : '', lowerShort: name.slice(cut + 1).toLowerCase(), own: origin === 'p' };
-            entry.classes.set(name.toLowerCase(), item);
-            return item;
-        });
-        if (force) entry.details.clear();
-        entry.loaded = true;
-        bus.emit('index', { project, status: 'ready', count: entry.list.length, durationMs: data.durationMs });
+    entry.loading = fetchIndex(entry, force).then(() => {
+        bus.emit('index', { project, status: 'ready', count: entry.list.length });
         return entry;
     }).catch(error => {
         bus.emit('index', { project, status: 'error', error });
         return null;
     }).finally(() => { entry.loading = null; });
     return entry.loading;
+}
+
+export function refreshIndex(project) {
+    const entry = project ? projects.get(String(project).toLowerCase()) : null;
+    if (!entry?.loaded) return Promise.resolve(null);
+    if (entry.loading) return entry.loading;
+    if (!entry.refreshing) {
+        entry.refreshing = fetchIndex(entry, false).then(changed => {
+            if (changed) bus.emit('index', { project, status: 'ready', count: entry.list.length });
+            return entry;
+        }).catch(() => entry).finally(() => { entry.refreshing = null; });
+    }
+    return entry.refreshing;
 }
 
 export function indexInfo(project) {
@@ -208,6 +239,7 @@ export function indexInfo(project) {
 async function ensureIndex(project) {
     const entry = projectEntry(project);
     if (!entry.loaded) await loadIndex(project);
+    else if (Date.now() - entry.checkedAt > STALE_MS) await Promise.race([refreshIndex(project), new Promise(resolve => setTimeout(resolve, REFRESH_WAIT_MS))]);
     return entry;
 }
 

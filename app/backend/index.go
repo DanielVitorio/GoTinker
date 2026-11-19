@@ -23,6 +23,14 @@ type classRef struct {
 	Name string `json:"n"`
 	Path string `json:"p"`
 	Kind string `json:"k"`
+	mod  int64
+	size int64
+}
+
+type kindEntry struct {
+	mod  int64
+	size int64
+	kind string
 }
 
 type composerMaps struct {
@@ -32,6 +40,7 @@ type composerMaps struct {
 
 type projectIndex struct {
 	stamp    string
+	rev      string
 	composer *composerMaps
 	vendor   []classRef
 	project  []classRef
@@ -55,6 +64,8 @@ var (
 	indexMu      sync.Mutex
 	indexEntries = map[string]*projectIndex{}
 	indexCalls   = map[string]*indexCall{}
+	kindMu       sync.Mutex
+	kindCache    = map[string]kindEntry{}
 	identRE      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	headNsRE     = regexp.MustCompile(`(?m)^\s*namespace\s+([^;{\s]+)`)
 	headClassRE  = regexp.MustCompile(`(?m)^\s*(?:(?:abstract|final|readonly)\s+)*(class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)`)
@@ -79,9 +90,17 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started := time.Now()
-	idx, err := loadProjectIndex(project, r.URL.Query().Get("force") == "1")
+	force := r.URL.Query().Get("force") == "1"
+	idx, err := loadProjectIndex(project, force)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "project": project, "error": err.Error()})
+		return
+	}
+	if rev := r.URL.Query().Get("rev"); !force && rev != "" && rev == idx.rev {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true, "project": project, "rev": idx.rev, "unchanged": true,
+			"durationMs": time.Since(started).Milliseconds(),
+		})
 		return
 	}
 	list := make([][3]string, 0, len(idx.project)+len(idx.vendor))
@@ -96,7 +115,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "project": project, "classes": list, "count": len(list),
+		"ok": true, "project": project, "rev": idx.rev, "classes": list, "count": len(list),
 		"durationMs": time.Since(started).Milliseconds(),
 	})
 }
@@ -162,6 +181,7 @@ func buildProjectIndex(project, stamp string, prev *projectIndex, force bool) (*
 		}
 	}
 	idx.project = scanProjectClasses(project, idx.composer)
+	idx.rev = projectRev(stamp, idx.project)
 	idx.byName = make(map[string]classRef, len(idx.vendor)+len(idx.project))
 	for _, ref := range idx.vendor {
 		idx.byName[strings.ToLower(ref.Name)] = ref
@@ -170,6 +190,15 @@ func buildProjectIndex(project, stamp string, prev *projectIndex, force bool) (*
 		idx.byName[strings.ToLower(ref.Name)] = ref
 	}
 	return idx, nil
+}
+
+func projectRev(stamp string, refs []classRef) string {
+	h := sha1.New()
+	h.Write([]byte(stamp))
+	for _, ref := range refs {
+		h.Write([]byte("\x00" + ref.Name + "\x00" + ref.Path + "\x00" + ref.Kind + "\x00" + strconv.FormatInt(ref.mod, 10) + ":" + strconv.FormatInt(ref.size, 10)))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func composerStamp(project string) string {
@@ -281,7 +310,7 @@ func scanComposerVendor(project string, maps *composerMaps) []classRef {
 		go func(i int, j job) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[i] = walkPSR4(j.prefix, j.dir, "")
+			results[i] = walkPSR4(j.prefix, j.dir, "", false)
 		}(i, j)
 	}
 	wg.Wait()
@@ -335,7 +364,7 @@ func vendorKind(name string) string {
 	return "class"
 }
 
-func walkPSR4(prefix, dir, kind string) []classRef {
+func walkPSR4(prefix, dir, kind string, stat bool) []classRef {
 	var out []classRef
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -370,7 +399,13 @@ func walkPSR4(prefix, dir, kind string) []classRef {
 		if k == "" {
 			k = vendorKind(fqcn)
 		}
-		out = append(out, classRef{Name: fqcn, Path: path, Kind: k})
+		ref := classRef{Name: fqcn, Path: path, Kind: k}
+		if stat {
+			if info, err := d.Info(); err == nil {
+				ref.mod, ref.size = info.ModTime().UnixNano(), info.Size()
+			}
+		}
+		out = append(out, ref)
 		return nil
 	})
 	return out
@@ -390,7 +425,7 @@ func scanProjectClasses(project string, maps *composerMaps) []classRef {
 				if pathInside(dir, vendorDir) || !pathInside(dir, project) {
 					continue
 				}
-				for _, ref := range walkPSR4(prefix, dir, "class") {
+				for _, ref := range walkPSR4(prefix, dir, "class", true) {
 					key := strings.ToLower(ref.Name)
 					if !seen[key] {
 						seen[key] = true
@@ -412,7 +447,7 @@ func scanProjectClasses(project string, maps *composerMaps) []classRef {
 		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			refs[i].Kind = projectKind(project, appDir, refs[i])
+			refs[i].Kind = cachedProjectKind(project, appDir, refs[i])
 		}(i)
 	}
 	wg.Wait()
@@ -424,6 +459,23 @@ func scanProjectClasses(project string, maps *composerMaps) []classRef {
 		return strings.ToLower(refs[i].Name) < strings.ToLower(refs[j].Name)
 	})
 	return refs
+}
+
+func cachedProjectKind(project, appDir string, ref classRef) string {
+	if ref.mod == 0 {
+		return projectKind(project, appDir, ref)
+	}
+	kindMu.Lock()
+	entry, ok := kindCache[ref.Path]
+	kindMu.Unlock()
+	if ok && entry.mod == ref.mod && entry.size == ref.size {
+		return entry.kind
+	}
+	kind := projectKind(project, appDir, ref)
+	kindMu.Lock()
+	kindCache[ref.Path] = kindEntry{mod: ref.mod, size: ref.size, kind: kind}
+	kindMu.Unlock()
+	return kind
 }
 
 func projectKind(project, appDir string, ref classRef) string {
@@ -496,7 +548,7 @@ func scanFallback(root, kind string) []classRef {
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil
 	}
-	var files []string
+	var files []classRef
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -508,19 +560,24 @@ func scanFallback(root, kind string) []classRef {
 			return nil
 		}
 		if strings.HasSuffix(strings.ToLower(d.Name()), ".php") {
-			files = append(files, path)
+			file := classRef{Path: path}
+			if info, err := d.Info(); err == nil {
+				file.mod, file.size = info.ModTime().UnixNano(), info.Size()
+			}
+			files = append(files, file)
 		}
 		return nil
 	})
 	refs := make([]classRef, len(files))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, max(4, runtime.NumCPU()*2))
-	for i, path := range files {
+	for i, file := range files {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(i int, path string) {
+		go func(i int, file classRef) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			path := file.Path
 			raw, err := readHead(path, 32*1024)
 			if err != nil {
 				return
@@ -545,8 +602,8 @@ func scanFallback(root, kind string) []classRef {
 			if k == "package" {
 				k = vendorKind(name)
 			}
-			refs[i] = classRef{Name: name, Path: path, Kind: k}
-		}(i, path)
+			refs[i] = classRef{Name: name, Path: path, Kind: k, mod: file.mod, size: file.size}
+		}(i, file)
 	}
 	wg.Wait()
 	seen := map[string]bool{}
