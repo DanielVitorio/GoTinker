@@ -4,7 +4,8 @@ import { currentLanguage, languageInfo, languages, t } from './i18n.js';
 import { findNode, newFolderNode, persist, state } from './store.js';
 import { basename, bus, esc, h } from './util.js';
 import { createRichEditor, isRichEmpty } from './richtext.js';
-import { openModal, toast } from './ui.js';
+import { confirmDialog, openModal, toast } from './ui.js';
+import { isRemote, parseRemote, projectLabel, remoteProject, setSSHConnections, sshConnection, sshConnections } from './remote.js';
 
 export function saveRequestDialog({ name, description = '', title, location: initialLocation = '' }) {
     return new Promise(resolve => {
@@ -116,7 +117,8 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
         let currentIsLaravel = false;
         let selectedFile = '';
         let drives = [];
-        let connections = [];
+        let remote = null;
+        let token = 0;
         const pathInput = h('input', { class: 'input', spellcheck: 'false', placeholder: 'C:\\projetos\\meu-laravel' });
         const upBtn = h('button', { class: 'icon-btn', type: 'button', title: t('parentFolder'), html: icon('arrowUp') });
         const goBtn = h('button', { class: 'btn', type: 'button', text: t('go') });
@@ -125,32 +127,73 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
         const hint = h('span', { class: 'fs-hint' });
         const useBtn = h('button', { class: 'btn btn-primary', type: 'button', text: mode === 'file' ? t('openFile') : t('useFolder') });
         const samePath = (a, b) => String(a || '').replace(/[\\/]+$/, '').toLowerCase() === String(b || '').replace(/[\\/]+$/, '').toLowerCase();
+        const spinner = () => { list.innerHTML = `<div class="fs-loading"><div class="spinner"></div></div>`; };
+        const showError = message => {
+            list.innerHTML = '';
+            list.append(h('div', { class: 'picker-empty error', text: message }));
+        };
 
+        const loadConnections = async () => {
+            if (mode !== 'project') return;
+            try {
+                setSSHConnections((await api('/api/ssh/connections')).connections || []);
+            } catch {}
+        };
+        const editConnection = async connection => {
+            const saved = await sshDialog(connection);
+            if (!saved) return;
+            await loadConnections();
+            if (saved.deleted && remote?.id === saved.id) browseLocal('');
+            else renderPlaces();
+        };
         const renderPlaces = () => {
             places.innerHTML = '';
             const place = (iconName, label, title, active, onclick, extra = '') => h('button', { class: 'fs-place' + (active ? ' active' : '') + extra, type: 'button', title, html: `${icon(iconName)}<span>${esc(label)}</span>`, onclick });
             const recent = [];
             for (const p of [...state.recentProjects, state.lastProject, ...state.tabs.map(tab => tab.project)]) {
-                if (p && !recent.some(x => samePath(x, p))) recent.push(p);
+                if (p && !recent.some(x => samePath(x, p)) && (mode === 'project' || !isRemote(p))) recent.push(p);
             }
             recent.length = Math.min(recent.length, 8);
+            const here = remote ? remoteProject(remote.id, current) : current;
             if (recent.length) {
                 places.append(h('div', { class: 'fs-section', text: t('recentProjects') }));
-                for (const p of recent) places.append(place('laravel', basename(p), p, samePath(p, current), () => browse(p)));
+                for (const p of recent) {
+                    const target = parseRemote(p);
+                    places.append(place(target ? 'server' : 'laravel', basename(p), projectLabel(p), samePath(p, here), () => target ? openRemote(target.id, target.path) : browseLocal(p)));
+                }
             }
             if (drives.length) {
                 places.append(h('div', { class: 'fs-section', text: t('drives') }));
-                const drive = drives.find(d => current.toLowerCase().startsWith(d.toLowerCase())) || '';
-                for (const d of drives) places.append(place('drive', d.replace(/\\$/, ''), d, d === drive && !recent.some(p => samePath(p, current)), () => browse(d)));
+                const drive = remote ? '' : drives.find(d => current.toLowerCase().startsWith(d.toLowerCase())) || '';
+                for (const d of drives) places.append(place('drive', d.replace(/\\$/, ''), d, d === drive && !recent.some(p => samePath(p, here)), () => browseLocal(d)));
             }
             if (mode === 'project') {
                 places.append(h('div', { class: 'fs-section', text: 'SSH' }));
-                for (const c of connections) places.append(place('server', c.name, `${c.user}@${c.host}:${c.port}`, false, () => sshDialog(c)));
-                places.append(place('plus', t('addSSH'), t('addSSH'), false, () => sshDialog(), ' ghost'));
+                for (const c of sshConnections()) {
+                    const item = place('server', c.name, `${c.user}@${c.host}:${c.port}`, remote?.id === c.id, () => openRemote(c.id));
+                    const edit = h('span', { class: 'fs-place-edit', role: 'button', title: t('editConnection'), html: icon('edit') });
+                    edit.addEventListener('click', event => {
+                        event.stopPropagation();
+                        editConnection(c);
+                    });
+                    item.append(edit);
+                    item.addEventListener('contextmenu', event => {
+                        event.preventDefault();
+                        editConnection(c);
+                    });
+                    places.append(item);
+                }
+                places.append(place('plus', t('addSSH'), t('addSSH'), false, async () => {
+                    const saved = await sshDialog();
+                    if (!saved) return;
+                    await loadConnections();
+                    openRemote(saved.id);
+                }, ' ghost'));
             }
         };
         const update = () => {
             upBtn.disabled = !parent;
+            pathInput.placeholder = remote ? '/var/www/meu-laravel' : 'C:\\projetos\\meu-laravel';
             if (mode === 'file') {
                 useBtn.disabled = !selectedFile;
                 hint.textContent = selectedFile ? basename(selectedFile) : t('selectPHPFile');
@@ -160,28 +203,27 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
                 hint.classList.toggle('ok', currentIsLaravel);
             }
         };
-        let firstLoad = true;
-        const browse = async path => {
-            list.innerHTML = `<div class="fs-loading"><div class="spinner"></div></div>`;
+        const browse = async (path, retried = false) => {
+            const mine = ++token;
+            spinner();
             selectedFile = '';
             try {
-                const data = await api('/api/fs/list?' + query({ path: path || '' }));
+                const data = remote
+                    ? await api('/api/ssh/fs?' + query({ id: remote.id, path: path || '' }))
+                    : await api('/api/fs/list?' + query({ path: path || '' }));
+                if (mine !== token) return;
+                if (remote && !retried && ['auth', 'key', 'hostkey', 'hostkey-changed'].includes(data.code)) {
+                    openRemote(remote.id, path, true);
+                    return;
+                }
                 if (!data.ok) throw new Error(data.error || t('folderNotFound'));
                 current = data.current || '';
                 parent = data.parent || '';
                 currentIsLaravel = !!data.isLaravel;
                 pathInput.value = current;
-                if (firstLoad) {
-                    firstLoad = false;
-                    drives = data.drives || [];
-                    if (mode === 'project') {
-                        try {
-                            connections = (await api('/api/ssh/connections')).connections || [];
-                        } catch {}
-                    }
-                }
+                if (!remote && data.drives) drives = data.drives;
                 list.innerHTML = '';
-                if (!current) {
+                if (!current && !remote) {
                     for (const d of data.drives || []) list.append(fsRow({ name: d, isDir: true, path: d, drive: true }));
                 }
                 for (const entry of data.entries || []) {
@@ -191,11 +233,33 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
                 if (!list.children.length) list.append(h('div', { class: 'picker-empty', text: t('emptyFolderBrowser') }));
                 list.scrollTop = 0;
             } catch (error) {
-                list.innerHTML = '';
-                list.append(h('div', { class: 'picker-empty error', text: error.message }));
+                if (mine !== token) return;
+                showError(error.message);
             }
             renderPlaces();
             update();
+        };
+        const browseLocal = path => {
+            remote = null;
+            browse(path);
+        };
+        const openRemote = async (id, path = '', retried = false) => {
+            const mine = ++token;
+            remote = { id };
+            current = '';
+            parent = '';
+            currentIsLaravel = false;
+            pathInput.value = '';
+            spinner();
+            renderPlaces();
+            update();
+            const connected = await connectSSH(id);
+            if (mine !== token) return;
+            if (!connected) {
+                showError(t('sshNotConnected'));
+                return;
+            }
+            browse(path, retried);
         };
         const fsRow = entry => {
             const kind = entry.drive ? 'drive' : entry.isDir ? (entry.isLaravel ? 'laravel' : 'folder') : 'filePhp';
@@ -219,7 +283,7 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
                     selectedFile = entry.path;
                     submit();
                 } else if (mode === 'project' && entry.isLaravel) {
-                    result = entry.path;
+                    result = remote ? remoteProject(remote.id, entry.path) : entry.path;
                     modal.close();
                 }
             });
@@ -227,7 +291,7 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
         };
         const submit = () => {
             if (mode === 'file' ? !selectedFile : !currentIsLaravel) return;
-            result = mode === 'file' ? selectedFile : current;
+            result = mode === 'file' ? selectedFile : remote ? remoteProject(remote.id, current) : current;
             modal.close();
         };
         upBtn.addEventListener('click', () => parent && browse(parent));
@@ -244,40 +308,151 @@ export function projectPicker({ mode = 'project', start = '' } = {}) {
             places,
             h('div', { class: 'fs-main' }, h('div', { class: 'fs-path' }, upBtn, h('label', { class: 'fs-path-box' }, h('span', { class: 'fs-path-icon', html: icon('folderOpen') }), pathInput), goBtn), list));
         const footer = [hint, h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', text: t('cancel'), onclick: () => modal.close() }), useBtn];
-        const modal = openModal({ title: mode === 'file' ? t('openPHPFile') : t('selectLaravelProject'), subtitle: mode === 'file' ? '' : t('browseDrives'), body, footer, width: 820, className: 'fs-modal', onClose: () => resolve(result), initialFocus: 'input' });
-        browse(start || '');
+        const modal = openModal({ title: mode === 'file' ? t('openPHPFile') : t('selectLaravelProject'), subtitle: mode === 'file' ? '' : t('browseDrives'), body, footer, width: 820, className: 'fs-modal', onClose: () => { token++; resolve(result); }, initialFocus: 'input' });
+        spinner();
+        loadConnections().then(() => {
+            const target = mode === 'project' ? parseRemote(start) : null;
+            if (target) openRemote(target.id, target.path);
+            else browseLocal(isRemote(start) ? '' : start || '');
+        });
+    });
+}
+
+const pendingConnects = new Map();
+
+export function connectSSH(id) {
+    if (!pendingConnects.has(id)) pendingConnects.set(id, establishSSH(id).finally(() => pendingConnects.delete(id)));
+    return pendingConnects.get(id);
+}
+
+async function establishSSH(id) {
+    let password = '';
+    let save = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+        let res;
+        try {
+            res = await api('/api/ssh/connect', { body: { id, password, save } });
+        } catch (error) {
+            toast(error.message, 'error');
+            return false;
+        }
+        password = '';
+        save = false;
+        if (res.ok) return true;
+        const connection = sshConnection(id);
+        const host = connection ? `${connection.user}@${connection.host}:${connection.port}` : id;
+        if ((res.code === 'hostkey' || res.code === 'hostkey-changed') && res.trustable) {
+            const changed = res.code === 'hostkey-changed';
+            const answer = await confirmDialog({
+                title: t(changed ? 'sshKeyChangedTitle' : 'sshTrustTitle'),
+                message: t(changed ? 'sshKeyChangedMessage' : 'sshTrustMessage', { host, keyType: res.keyType, fingerprint: res.fingerprint }),
+                confirmLabel: t(changed ? 'sshReplaceKey' : 'sshTrust'),
+                danger: changed
+            });
+            if (answer !== 'confirm') return false;
+            const trusted = await api('/api/ssh/trust', { body: { id, fingerprint: res.fingerprint } }).catch(error => ({ ok: false, error: error.message }));
+            if (!trusted.ok) {
+                toast(trusted.error || t('sshNotConnected'), 'error');
+                return false;
+            }
+            continue;
+        }
+        if (res.code === 'auth' || res.code === 'key') {
+            const answer = await sshPasswordDialog(host, res.error);
+            if (!answer) return false;
+            ({ password, save } = answer);
+            continue;
+        }
+        toast(res.error || t('sshNotConnected'), 'error');
+        return false;
+    }
+    return false;
+}
+
+function sshPasswordDialog(host, message) {
+    return new Promise(resolve => {
+        let result = null;
+        const password = h('input', { class: 'input', type: 'password', autocomplete: 'off' });
+        const save = h('input', { type: 'checkbox' });
+        const submit = () => {
+            if (!password.value) {
+                password.focus();
+                return;
+            }
+            result = { password: password.value, save: save.checked };
+            modal.close();
+        };
+        password.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                submit();
+            }
+        });
+        const body = h('div', { class: 'ssh-auth' },
+            message ? h('p', { class: 'modal-text', text: message }) : null,
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('sshPasswordFor', { host }) }), password),
+            h('label', { class: 'check-row' }, save, h('span', { text: t('savePasswordDPAPI') })));
+        const footer = [h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', text: t('cancel'), onclick: () => modal.close() }), h('button', { class: 'btn btn-primary', type: 'button', text: t('connect'), onclick: submit })];
+        const modal = openModal({ title: t('sshPasswordTitle'), body, footer, width: 460, onClose: () => resolve(result), initialFocus: 'input[type="password"]' });
     });
 }
 
 export function sshDialog(connection = null) {
-    const name = h('input', { class: 'input', value: connection?.name || '', placeholder: t('connectionName') });
-    const host = h('input', { class: 'input', value: connection?.host || '', placeholder: t('server') });
-    const port = h('input', { class: 'input', type: 'number', min: '1', max: '65535', value: String(connection?.port || 22) });
-    const user = h('input', { class: 'input', value: connection?.user || '', placeholder: t('user') });
-    const platform = h('select', { class: 'input' }, h('option', { value: 'linux', text: 'Linux' }), h('option', { value: 'windows', text: 'Windows' }));
-    platform.value = connection?.platform || 'linux';
-    const password = h('input', { class: 'input', type: 'password', placeholder: t('passwordOptional') });
-    const save = h('input', { type: 'checkbox' });
-    const submit = async () => {
-        try {
-            const res = await api('/api/ssh/connections', { body: { connection: { id: connection?.id || '', name: name.value.trim(), host: host.value.trim(), port: Number(port.value || 22), user: user.value.trim(), platform: platform.value }, password: password.value, save: save.checked } });
-            modal.close();
-            toast(t('connectionSaved', { name: res.connection.name }), 'success');
-        } catch (error) {
-            toast(error.message, 'error');
-        }
-    };
-    const body = h('div', { class: 'form-grid' },
-        h('label', { class: 'field span-2' }, h('span', { class: 'field-label', text: t('connectionName') }), name),
-        h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('server') }), host),
-        h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('port') }), port),
-        h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('user') }), user),
-        h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('system') }), platform),
-        h('label', { class: 'field span-2' }, h('span', { class: 'field-label', text: t('password') }), password),
-        h('label', { class: 'check-row span-2' }, save, h('span', { text: t('savePasswordDPAPI') })),
-        h('p', { class: 'help span-2', text: t('sshHelp') }));
-    const footer = [h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', text: t('cancel'), onclick: () => modal.close() }), h('button', { class: 'btn btn-primary', type: 'button', text: t('saveConnection'), onclick: submit })];
-    const modal = openModal({ title: t('sshConnection'), body, footer, width: 520 });
+    return new Promise(resolve => {
+        let result = null;
+        const name = h('input', { class: 'input', value: connection?.name || '', placeholder: t('connectionName') });
+        const host = h('input', { class: 'input', value: connection?.host || '', placeholder: t('server') });
+        const port = h('input', { class: 'input', type: 'number', min: '1', max: '65535', value: String(connection?.port || 22) });
+        const user = h('input', { class: 'input', value: connection?.user || '', placeholder: t('user') });
+        const platform = h('select', { class: 'input' }, h('option', { value: 'linux', text: 'Linux' }), h('option', { value: 'windows', text: 'Windows' }));
+        platform.value = connection?.platform || 'linux';
+        const keyPath = h('input', { class: 'input', value: connection?.keyPath || '', placeholder: '~/.ssh/id_ed25519', spellcheck: 'false' });
+        const php = h('input', { class: 'input', value: connection?.php || '', placeholder: 'php', spellcheck: 'false' });
+        const password = h('input', { class: 'input', type: 'password', autocomplete: 'off', placeholder: connection?.hasPassword ? t('passwordKeep') : t('passwordOptional') });
+        const save = h('input', { type: 'checkbox' });
+        const submit = async () => {
+            try {
+                const res = await api('/api/ssh/connections', { body: { connection: { id: connection?.id || '', name: name.value.trim(), host: host.value.trim(), port: Number(port.value || 22), user: user.value.trim(), platform: platform.value, keyPath: keyPath.value.trim(), php: php.value.trim() }, password: password.value, save: save.checked } });
+                setSSHConnections([...sshConnections().filter(c => c.id !== res.connection.id), res.connection]);
+                result = res.connection;
+                modal.close();
+                toast(t('connectionSaved', { name: res.connection.name }), 'success');
+            } catch (error) {
+                toast(error.message, 'error');
+            }
+        };
+        const remove = async () => {
+            const answer = await confirmDialog({ title: t('deleteConnection'), message: t('deleteConnectionConfirm', { name: connection.name }), confirmLabel: t('delete'), danger: true });
+            if (answer !== 'confirm') return;
+            try {
+                await api('/api/ssh/connections?' + query({ id: connection.id }), { method: 'DELETE' });
+                setSSHConnections(sshConnections().filter(c => c.id !== connection.id));
+                result = { deleted: true, id: connection.id };
+                modal.close();
+                toast(t('connectionDeleted', { name: connection.name }), 'success');
+            } catch (error) {
+                toast(error.message, 'error');
+            }
+        };
+        const body = h('div', { class: 'form-grid' },
+            h('label', { class: 'field span-2' }, h('span', { class: 'field-label', text: t('connectionName') }), name),
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('server') }), host),
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('port') }), port),
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('user') }), user),
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('system') }), platform),
+            h('label', { class: 'field span-2' }, h('span', { class: 'field-label', text: t('password') }), password),
+            h('label', { class: 'check-row span-2' }, save, h('span', { text: t('savePasswordDPAPI') })),
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('privateKey') }), keyPath),
+            h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('phpCommand') }), php),
+            h('p', { class: 'help span-2', text: t('sshHelp') }));
+        const footer = [
+            connection ? h('button', { class: 'btn btn-danger-ghost', type: 'button', text: t('deleteConnection'), onclick: remove }) : null,
+            h('span', { class: 'spacer' }),
+            h('button', { class: 'btn', type: 'button', text: t('cancel'), onclick: () => modal.close() }),
+            h('button', { class: 'btn btn-primary', type: 'button', text: t('saveConnection'), onclick: submit })
+        ].filter(Boolean);
+        const modal = openModal({ title: connection ? t('editConnection') : t('sshConnection'), body, footer, width: 540, onClose: () => resolve(result) });
+    });
 }
 
 export function importDialog(onImport) {
@@ -349,7 +524,7 @@ export function shortcutsDialog() {
     const rows = [
         ['Ctrl+Enter', t('send')], ['Ctrl+Shift+Enter', t('runAll')], ['Ctrl+S', t('save')], ['Ctrl+Shift+S', t('saveAs')],
         ['Ctrl+T', t('newTab')], ['Ctrl+W', t('closeTab')], ['Ctrl+Tab', t('nextTab')], ['Ctrl+P / Ctrl+K', t('search')],
-        ['Ctrl+O', t('openPHPFile')], ['Ctrl+\\', t('toggleSidebar')], ['Ctrl+`', t('toggleTerminal')], ['Ctrl+Alt+L', t('toggleLayout')],
+        ['Ctrl+O', t('openPHPFile')], ['Ctrl+\\', t('toggleSidebar')], ['Ctrl+`', t('toggleTerminal')], ['Ctrl+Alt+L', t('toggleLayout')], ['Ctrl+J', t('toggleResponse')],
         ['Ctrl+Space', t('triggerSuggest')], ['F1', t('commandPalette')], ['Ctrl+F', t('find')], ['Ctrl+/', t('toggleComment')], ['Alt+↑ / Alt+↓', t('moveLine')]
     ];
     const table = h('div', { class: 'shortcuts' });

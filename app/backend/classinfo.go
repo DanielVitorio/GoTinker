@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -132,7 +133,7 @@ func handleClass(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "método não permitido"})
 		return
 	}
-	project, err := validateProject(r.URL.Query().Get("project"))
+	project, err := normalizeProject(r.URL.Query().Get("project"))
 	if err != nil {
 		writeJSON(w, http.StatusOK, classDetail{Error: err.Error()})
 		return
@@ -144,24 +145,31 @@ func handleClass(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := idx.byName[strings.ToLower(name)]; !ok {
-		idx, _ = loadProjectIndex(project, false)
+		if fresh, err := loadProjectIndex(project, false); err == nil {
+			idx = fresh
+		}
 	}
-	detail := resolveClassDetail(project, idx, name)
-	writeJSON(w, http.StatusOK, detail)
+	load := func(ref classRef) *parsedClass { return parseClassFile(ref.Path) }
+	if isRemoteProject(project) {
+		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+		defer cancel()
+		load = remoteClassLoader(ctx, project, idx)
+	}
+	writeJSON(w, http.StatusOK, resolveClassDetail(idx, name, load))
 }
 
-func resolveClassDetail(project string, idx *projectIndex, name string) classDetail {
+func resolveClassDetail(idx *projectIndex, name string, load func(classRef) *parsedClass) classDetail {
 	ref, ok := idx.byName[strings.ToLower(name)]
 	if !ok {
 		return classDetail{Name: name, Error: "classe não encontrada"}
 	}
-	root := parseClassFile(ref.Path)
+	root := load(ref)
 	if root == nil {
 		return classDetail{Name: ref.Name, Error: "não foi possível ler a classe"}
 	}
-	rel, _ := filepath.Rel(project, ref.Path)
+	rel := strings.TrimPrefix(filepath.ToSlash(ref.Path), filepath.ToSlash(idx.root)+"/")
 	detail := classDetail{
-		OK: true, Name: ref.Name, Kind: root.Kind, File: filepath.ToSlash(rel), Doc: root.Doc,
+		OK: true, Name: ref.Name, Kind: root.Kind, File: rel, Doc: root.Doc,
 		Parents: []string{}, Methods: []methodInfo{}, Properties: []string{}, Attributes: []string{},
 		Fillable: []string{}, Relations: []relationInfo{}, Scopes: []string{}, Constants: []string{}, Mixins: []string{},
 	}
@@ -201,7 +209,7 @@ func resolveClassDetail(project string, idx *projectIndex, name string) classDet
 		mixins = append(mixins, pc.Mixins...)
 		for _, trait := range pc.Traits {
 			if tref, ok := idx.byName[strings.ToLower(trait)]; ok {
-				merge(tref.Name, parseClassFile(tref.Path), depth+1)
+				merge(tref.Name, load(tref), depth+1)
 			}
 		}
 		for _, parent := range pc.Extends {
@@ -213,7 +221,7 @@ func resolveClassDetail(project string, idx *projectIndex, name string) classDet
 			}
 			detail.Parents = append(detail.Parents, parent)
 			if pref, ok := idx.byName[strings.ToLower(parent)]; ok {
-				merge(pref.Name, parseClassFile(pref.Path), depth+1)
+				merge(pref.Name, load(pref), depth+1)
 			}
 		}
 	}

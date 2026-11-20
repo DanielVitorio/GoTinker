@@ -14,14 +14,16 @@ import {
 import { applyTheme, currentTheme, toggleTheme } from './theme.js';
 import { indexInfo, loadIndex, refreshIndex } from './intellisense.js';
 import {
-    applyLayout, editorReady, initRequestView, refreshDirty, refreshVariableIssues, renderRequest, setHint, setProjectInfo, setRunning, variableIssues
+    applyLayout, editorReady, initRequestView, isResponseOpen, refreshDirty, refreshVariableIssues, renderRequest, setHint, setProjectInfo, setResponseOpen,
+    setRunning, variableIssues
 } from './request.js';
+import { parseRemote, projectLabel } from './remote.js';
 import { attachMonaco, initResponse, layoutResponse, renderResponse, setLoading, updateLayoutButtons } from './response.js';
 import { initEnvironmentView, renderEnvironment } from './envview.js';
 import { focusDoc, initDocView, refreshDocDirty, renderDoc } from './docview.js';
 import { initTabs, renderEnvironmentSelect, renderTabs, tabTitle, updateTab } from './tabs.js';
 import { applySidebar, initSidebar, renderSidebar, revealNode, startRename } from './sidebar.js';
-import { importDialog, projectPicker, saveRequestDialog, settingsDialog, shortcutsDialog } from './dialogs.js';
+import { connectSSH, importDialog, projectPicker, saveRequestDialog, settingsDialog, shortcutsDialog } from './dialogs.js';
 import { applyTerminalTheme, initTerminal, toggleTerminal } from './terminal.js';
 import { openPalette } from './palette.js';
 
@@ -121,7 +123,7 @@ function buildStatusbar() {
     els.sbSidebar.addEventListener('click', toggleSidebar);
     els.sbProject.addEventListener('click', pickProject);
     els.sbTerminal.addEventListener('click', () => toggleTerminal());
-    els.sbLayout.addEventListener('click', toggleLayout);
+    els.sbLayout.addEventListener('click', () => toggleResponse());
     els.sbKeys.addEventListener('click', shortcutsDialog);
     els.sbIndex.addEventListener('click', () => reindex());
 }
@@ -131,13 +133,14 @@ function renderStatusbar() {
     const project = activeProject();
     const status = projectStatus.get(project.toLowerCase());
     els.sbProjectText.textContent = project ? basename(project) : t('noProject');
-    els.sbProject.title = project ? `${project}${status?.laravel ? `\nLaravel ${status.laravel}` : ''}${status?.php ? ` · PHP ${status.php}` : ''}` : t('selectProject');
+    els.sbProject.title = project ? `${projectLabel(project)}${status?.laravel ? `\nLaravel ${status.laravel}` : ''}${status?.php ? ` · PHP ${status.php}` : ''}` : t('selectProject');
     els.sbDot.className = 'sb-dot ' + (!project ? '' : !status ? 'loading' : status.ok ? 'ok' : 'error');
     const info = project ? indexInfo(project) : null;
     els.sbIndex.innerHTML = !project ? '' : info?.loading || !info ? `<span class="sb-spin"></span>${t('indexing')}` : info.loaded ? `${icon('bolt')}${t('classCount', { count: info.count.toLocaleString() })}` : '';
     els.sbIndex.title = t('reindexProject');
     els.sbLayout.innerHTML = icon(state.ui.layout === 'side' ? 'layoutSide' : 'layoutStacked');
-    els.sbLayout.title = state.ui.layout === 'side' ? t('responseBelow') : t('responseSide');
+    els.sbLayout.title = `${isResponseOpen() ? t('hideResponse') : t('showResponse')} (Ctrl+J)`;
+    els.sbLayout.classList.toggle('active', isResponseOpen());
     els.sbTerminal.classList.toggle('active', !!state.ui.terminalOpen);
     const env = activeEnvironment();
     els.sbEnv.innerHTML = env ? `${icon('environments')}${env.name.replace(/</g, '&lt;')}` : '';
@@ -174,11 +177,28 @@ function renderAll() {
     showActive();
 }
 
-async function refreshProject(project, force = false) {
-    if (!project) return;
+const statusLoads = new Map();
+
+function refreshProject(project, force = false) {
+    if (!project) return Promise.resolve();
     const key = project.toLowerCase();
-    if (!force && projectStatus.has(key)) return;
+    if (statusLoads.has(key)) return statusLoads.get(key);
+    if (!force && projectStatus.has(key)) return Promise.resolve();
+    const job = loadProjectStatus(project, key, force).finally(() => statusLoads.delete(key));
+    statusLoads.set(key, job);
+    return job;
+}
+
+async function loadProjectStatus(project, key, force) {
     try {
+        const remote = parseRemote(project);
+        if (remote && !(await connectSSH(remote.id))) {
+            const status = { ok: false, project, error: t('sshNotConnected') };
+            projectStatus.set(key, status);
+            setProjectInfo(project, status);
+            renderStatusbar();
+            return;
+        }
         const status = await api('/api/status?' + query({ project }));
         projectStatus.set(key, status);
         dataDir = status.dataDir || dataDir;
@@ -434,6 +454,11 @@ async function run({ full = false, previewParams = null, selection: useSelection
         const project = await pickProject();
         if (!project) return;
     }
+    if (parseRemote(tab.project) && !projectStatus.get(tab.project.toLowerCase())?.ok) {
+        projectStatus.delete(tab.project.toLowerCase());
+        await refreshProject(tab.project, true);
+        if (!projectStatus.get(tab.project.toLowerCase())?.ok || running) return;
+    }
     if (!String(selection.code).trim()) {
         toast(t('emptyCode'), 'error');
         focusEditor();
@@ -454,6 +479,7 @@ async function run({ full = false, previewParams = null, selection: useSelection
     if (previewParams) tab.previewParams = previewParams;
     const controller = new AbortController();
     running = { tabId: tab.id, controller };
+    if (!isResponseOpen()) toggleResponse(true);
     setRunning(true);
     setLoading(true);
     setHint(selection.selection ? t('runningSelection') : '');
@@ -776,6 +802,11 @@ function toggleLayout() {
     setLayout(state.ui.layout === 'side' ? 'stacked' : 'side');
 }
 
+function toggleResponse(force) {
+    setResponseOpen(typeof force === 'boolean' ? force : !isResponseOpen());
+    renderStatusbar();
+}
+
 function openSettings() {
     settingsDialog({
         dataDir,
@@ -852,6 +883,7 @@ function bindBus() {
     bus.on('action:toggleTerminal', () => toggleTerminal());
     bus.on('action:toggleSidebar', toggleSidebar);
     bus.on('action:toggleLayout', toggleLayout);
+    bus.on('action:toggleResponse', toggleResponse);
     bus.on('action:setLayout', setLayout);
     bus.on('action:settings', openSettings);
     bus.on('action:shortcuts', shortcutsDialog);
@@ -962,6 +994,9 @@ function bindKeys() {
         } else if (ctrl && event.altKey && key === 'l') {
             stop();
             toggleLayout();
+        } else if (ctrl && !event.shiftKey && !event.altKey && key === 'j') {
+            stop();
+            toggleResponse();
         } else if (ctrl && key === ',') {
             stop();
             openSettings();

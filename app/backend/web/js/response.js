@@ -24,10 +24,11 @@ export function initResponse(container) {
             <div class="res-meta" id="resMeta"></div>
             <div class="res-actions">
                 <div class="layout-switch" role="group">
-                    <button class="icon-btn" id="resLayoutBelow" type="button" data-layout="stacked" data-i18n-title="responseBelow">${icon('layoutStacked')}</button>
-                    <button class="icon-btn" id="resLayoutSide" type="button" data-layout="side" data-i18n-title="responseSide">${icon('layoutSide')}</button>
+                    <button class="icon-btn" id="resLayoutBelow" type="button" data-layout="stacked">${icon('layoutStacked')}</button>
+                    <button class="icon-btn" id="resLayoutSide" type="button" data-layout="side">${icon('layoutSide')}</button>
                 </div>
                 <button class="icon-btn" id="resMoreBtn" type="button" data-i18n-title="moreActions">${icon('more')}</button>
+                <button class="icon-btn" id="resCloseBtn" type="button" data-i18n-title="hideResponse">${icon('close')}</button>
             </div>
         </div>
         <div class="res-toolbar" id="resToolbar">
@@ -89,10 +90,14 @@ export function initResponse(container) {
         viewer.focus();
         viewer.getAction('actions.find')?.run();
     });
-    root.querySelectorAll('.layout-switch [data-layout]').forEach(button => button.addEventListener('click', () => bus.emit('action:setLayout', button.dataset.layout)));
+    root.querySelectorAll('.layout-switch [data-layout]').forEach(button => button.addEventListener('click', () => {
+        if (button.classList.contains('active')) bus.emit('action:toggleResponse', false);
+        else bus.emit('action:setLayout', button.dataset.layout);
+    }));
     updateLayoutButtons();
     els.resCopyBtn.addEventListener('click', copyResponse);
     els.resCancelBtn.addEventListener('click', () => bus.emit('run:cancel'));
+    $('#resCloseBtn', root).addEventListener('click', () => bus.emit('action:toggleResponse', false));
     els.resMoreBtn.addEventListener('click', () => showMenu([
         { label: t('copyResponse'), icon: 'copy', action: copyResponse },
         { label: t('saveResponseFile'), icon: 'download', action: downloadResponse, disabled: !currentTab?.response },
@@ -240,6 +245,7 @@ function renderPreview(tab) {
 export function renderResponse(tab) {
     currentTab = tab;
     if (!root || !tab) return;
+    updateLayoutButtons();
     const r = tab.response;
     root.querySelectorAll('.res-tab').forEach(b => b.classList.toggle('active', b.dataset.res === tab.resView));
     els.bodyModes.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.mode === tab.bodyMode));
@@ -276,7 +282,11 @@ export function renderResponse(tab) {
 }
 
 export function updateLayoutButtons() {
-    root?.querySelectorAll('.layout-switch [data-layout]').forEach(button => button.classList.toggle('active', button.dataset.layout === (state.ui.layout === 'side' ? 'side' : 'stacked')));
+    root?.querySelectorAll('.layout-switch [data-layout]').forEach(button => {
+        const active = button.dataset.layout === (state.ui.layout === 'side' ? 'side' : 'stacked');
+        button.classList.toggle('active', active);
+        button.title = active ? t('hideResponse') : t(button.dataset.layout === 'side' ? 'responseSide' : 'responseBelow');
+    });
 }
 
 export function setLoading(loading) {

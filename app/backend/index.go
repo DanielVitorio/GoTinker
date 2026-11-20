@@ -41,6 +41,8 @@ type composerMaps struct {
 type projectIndex struct {
 	stamp    string
 	rev      string
+	root     string
+	built    time.Time
 	composer *composerMaps
 	vendor   []classRef
 	project  []classRef
@@ -84,7 +86,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "método não permitido"})
 		return
 	}
-	project, err := validateProject(r.URL.Query().Get("project"))
+	project, err := normalizeProject(r.URL.Query().Get("project"))
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -122,7 +124,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func loadProjectIndex(project string, force bool) (*projectIndex, error) {
 	key := strings.ToLower(filepath.Clean(project))
-	stamp := composerStamp(project)
+	remote := isRemoteProject(project)
 
 	indexMu.Lock()
 	if call, ok := indexCalls[key]; ok {
@@ -131,6 +133,10 @@ func loadProjectIndex(project string, force bool) (*projectIndex, error) {
 		return call.idx, call.err
 	}
 	prev := indexEntries[key]
+	if remote && !force && prev != nil && time.Since(prev.built) < remoteIndexFresh {
+		indexMu.Unlock()
+		return prev, nil
+	}
 	call := &indexCall{done: make(chan struct{})}
 	indexCalls[key] = call
 	indexMu.Unlock()
@@ -138,7 +144,13 @@ func loadProjectIndex(project string, force bool) (*projectIndex, error) {
 	if force {
 		prev = nil
 	}
-	idx, err := buildProjectIndex(project, stamp, prev, force)
+	var idx *projectIndex
+	var err error
+	if remote {
+		idx, err = buildRemoteIndex(project, prev, force)
+	} else {
+		idx, err = buildProjectIndex(project, composerStamp(project), prev, force)
+	}
 
 	indexMu.Lock()
 	if err == nil {
@@ -163,7 +175,7 @@ func cachedProjectIndex(project string) (*projectIndex, error) {
 }
 
 func buildProjectIndex(project, stamp string, prev *projectIndex, force bool) (*projectIndex, error) {
-	idx := &projectIndex{stamp: stamp}
+	idx := &projectIndex{stamp: stamp, root: project, built: time.Now()}
 	switch {
 	case prev != nil && prev.stamp == stamp:
 		idx.composer, idx.vendor = prev.composer, prev.vendor
@@ -181,7 +193,12 @@ func buildProjectIndex(project, stamp string, prev *projectIndex, force bool) (*
 		}
 	}
 	idx.project = scanProjectClasses(project, idx.composer)
-	idx.rev = projectRev(stamp, idx.project)
+	finishIndex(idx)
+	return idx, nil
+}
+
+func finishIndex(idx *projectIndex) {
+	idx.rev = projectRev(idx.stamp, idx.project)
 	idx.byName = make(map[string]classRef, len(idx.vendor)+len(idx.project))
 	for _, ref := range idx.vendor {
 		idx.byName[strings.ToLower(ref.Name)] = ref
@@ -189,7 +206,20 @@ func buildProjectIndex(project, stamp string, prev *projectIndex, force bool) (*
 	for _, ref := range idx.project {
 		idx.byName[strings.ToLower(ref.Name)] = ref
 	}
-	return idx, nil
+}
+
+func sortClassRefs(refs []classRef) {
+	sort.Slice(refs, func(i, j int) bool { return strings.ToLower(refs[i].Name) < strings.ToLower(refs[j].Name) })
+}
+
+func sortProjectRefs(refs []classRef) {
+	sort.Slice(refs, func(i, j int) bool {
+		ri, rj := kindRank(refs[i].Kind), kindRank(refs[j].Kind)
+		if ri != rj {
+			return ri < rj
+		}
+		return strings.ToLower(refs[i].Name) < strings.ToLower(refs[j].Name)
+	})
 }
 
 func projectRev(stamp string, refs []classRef) string {
@@ -223,12 +253,19 @@ func indexCachePath(project string) string {
 }
 
 func readIndexCache(project, stamp string) *indexCacheFile {
+	if cache := readIndexCacheFile(project); cache != nil && cache.Stamp == stamp {
+		return cache
+	}
+	return nil
+}
+
+func readIndexCacheFile(project string) *indexCacheFile {
 	raw, err := os.ReadFile(indexCachePath(project))
 	if err != nil {
 		return nil
 	}
 	var cache indexCacheFile
-	if json.Unmarshal(raw, &cache) != nil || cache.Version != indexCacheVersion || cache.Stamp != stamp {
+	if json.Unmarshal(raw, &cache) != nil || cache.Version != indexCacheVersion {
 		return nil
 	}
 	return &cache
@@ -337,7 +374,7 @@ func scanComposerVendor(project string, maps *composerMaps) []classRef {
 		}
 		add(classRef{Name: name, Path: path, Kind: vendorKind(name)})
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	sortClassRefs(out)
 	return out
 }
 
@@ -451,13 +488,7 @@ func scanProjectClasses(project string, maps *composerMaps) []classRef {
 		}(i)
 	}
 	wg.Wait()
-	sort.Slice(refs, func(i, j int) bool {
-		ri, rj := kindRank(refs[i].Kind), kindRank(refs[j].Kind)
-		if ri != rj {
-			return ri < rj
-		}
-		return strings.ToLower(refs[i].Name) < strings.ToLower(refs[j].Name)
-	})
+	sortProjectRefs(refs)
 	return refs
 }
 
@@ -616,6 +647,6 @@ func scanFallback(root, kind string) []classRef {
 		seen[key] = true
 		out = append(out, ref)
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	sortClassRefs(out)
 	return out
 }

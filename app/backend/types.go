@@ -54,6 +54,8 @@ type statusResponse struct {
 	Storage     string `json:"storage"`
 	StoragePath string `json:"storagePath"`
 	DataDir     string `json:"dataDir"`
+	Remote      bool   `json:"remote,omitempty"`
+	SSHCode     string `json:"sshCode,omitempty"`
 	Error       string `json:"error,omitempty"`
 }
 

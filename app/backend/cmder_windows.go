@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,14 +14,16 @@ import (
 
 	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/ssh"
 )
 
 type terminalSession struct {
-	process  *pty.Cmd
-	terminal pty.Pty
-	mu       sync.Mutex
-	data     chan []byte
-	done     chan struct{}
+	write  func([]byte) (int, error)
+	resize func(rows, cols int) error
+	kill   func()
+	mu     sync.Mutex
+	data   chan []byte
+	done   chan struct{}
 }
 
 type terminalSize struct {
@@ -52,7 +55,7 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessão inválida"})
 		return
 	}
-	project, err := validateProject(r.URL.Query().Get("project"))
+	project, err := normalizeProject(r.URL.Query().Get("project"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -97,11 +100,11 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 			}
 			var size terminalSize
 			if json.Unmarshal(message.data, &size) == nil && size.Type == "resize" && size.Cols > 0 && size.Rows > 0 {
-				_ = session.terminal.Resize(size.Rows, size.Cols)
+				_ = session.resize(size.Rows, size.Cols)
 				continue
 			}
 			session.mu.Lock()
-			_, err := session.terminal.Write(message.data)
+			_, err := session.write(message.data)
 			session.mu.Unlock()
 			if err != nil {
 				return
@@ -116,6 +119,14 @@ func getTerminalSession(id, project string) (*terminalSession, error) {
 	terminalSessionsMu.Lock()
 	defer terminalSessionsMu.Unlock()
 	if session := terminalSessions[id]; session != nil {
+		return session, nil
+	}
+	if isRemoteProject(project) {
+		session, err := newSSHTerminal(project)
+		if err != nil {
+			return nil, err
+		}
+		terminalSessions[id] = session
 		return session, nil
 	}
 	root := strings.TrimSpace(os.Getenv("GOTINKER_CMDER_ROOT"))
@@ -155,28 +166,92 @@ func getTerminalSession(id, project string) (*terminalSession, error) {
 		_ = terminal.Close()
 		return nil, fmt.Errorf("não foi possível iniciar o terminal integrado: %w", err)
 	}
-	session := &terminalSession{process: process, terminal: terminal, data: make(chan []byte, 128), done: make(chan struct{})}
+	session := &terminalSession{
+		write:  terminal.Write,
+		resize: terminal.Resize,
+		kill: func() {
+			if process.Process != nil {
+				_ = process.Process.Kill()
+			}
+		},
+		data: make(chan []byte, 128),
+		done: make(chan struct{}),
+	}
 	terminalSessions[id] = session
-	go func() {
-		buffer := make([]byte, 8192)
-		for {
-			count, readErr := terminal.Read(buffer)
-			if count > 0 {
-				chunk := append([]byte(nil), buffer[:count]...)
-				select {
-				case session.data <- chunk:
-				case <-session.done:
-					return
-				}
-			}
-			if readErr != nil {
-				return
-			}
-		}
-	}()
+	go pumpTerminal(session, terminal)
 	go func() {
 		_ = process.Wait()
 		_ = terminal.Close()
+		close(session.done)
+	}()
+	return session, nil
+}
+
+func pumpTerminal(session *terminalSession, source io.Reader) {
+	buffer := make([]byte, 8192)
+	for {
+		count, readErr := source.Read(buffer)
+		if count > 0 {
+			chunk := append([]byte(nil), buffer[:count]...)
+			select {
+			case session.data <- chunk:
+			case <-session.done:
+				return
+			}
+		}
+		if readErr != nil {
+			return
+		}
+	}
+}
+
+func newSSHTerminal(project string) (*terminalSession, error) {
+	id, root, err := parseRemoteProject(project)
+	if err != nil {
+		return nil, err
+	}
+	remote, c, err := sshSession(id)
+	if err != nil {
+		return nil, err
+	}
+	modes := ssh.TerminalModes{ssh.ECHO: 1, ssh.TTY_OP_ISPEED: 14400, ssh.TTY_OP_OSPEED: 14400}
+	if err := remote.RequestPty("xterm-256color", 30, 120, modes); err != nil {
+		_ = remote.Close()
+		return nil, fmt.Errorf("o servidor recusou o terminal: %w", err)
+	}
+	stdin, err := remote.StdinPipe()
+	if err != nil {
+		_ = remote.Close()
+		return nil, err
+	}
+	stdout, err := remote.StdoutPipe()
+	if err != nil {
+		_ = remote.Close()
+		return nil, err
+	}
+	if c.Platform == "windows" {
+		err = remote.Shell()
+		if err == nil {
+			_, _ = stdin.Write([]byte(`cd /d "` + strings.ReplaceAll(root, "/", `\`) + `"` + "\r\n"))
+		}
+	} else {
+		err = remote.Start("cd " + shellQuote(root) + ` 2>/dev/null; exec "${SHELL:-/bin/sh}" -l`)
+	}
+	if err != nil {
+		_ = remote.Close()
+		return nil, fmt.Errorf("não foi possível abrir o terminal remoto: %w", err)
+	}
+	session := &terminalSession{
+		write:  stdin.Write,
+		resize: remote.WindowChange,
+		kill:   func() { _ = remote.Close() },
+		data:   make(chan []byte, 128),
+		done:   make(chan struct{}),
+	}
+	go pumpTerminal(session, stdout)
+	go func() {
+		_ = remote.Wait()
+		_ = remote.Close()
 		close(session.done)
 	}()
 	return session, nil
@@ -211,8 +286,6 @@ func handleTerminalShutdown(w http.ResponseWriter, r *http.Request) {
 
 func closeTerminalProcess(session *terminalSession) {
 	session.mu.Lock()
-	if session.process.Process != nil {
-		_ = session.process.Process.Kill()
-	}
+	session.kill()
 	session.mu.Unlock()
 }

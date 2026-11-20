@@ -207,15 +207,18 @@ export function loadIndex(project, force = false) {
     const entry = projectEntry(project);
     if (entry.loading && !force) return entry.loading;
     if (entry.loaded && !force) return Promise.resolve(entry);
-    bus.emit('index', { project, status: 'loading' });
-    entry.loading = fetchIndex(entry, force).then(() => {
+    const job = fetchIndex(entry, force).then(() => {
+        if (entry.loading === job) entry.loading = null;
         bus.emit('index', { project, status: 'ready', count: entry.list.length });
         return entry;
-    }).catch(error => {
+    }, error => {
+        if (entry.loading === job) entry.loading = null;
         bus.emit('index', { project, status: 'error', error });
         return null;
-    }).finally(() => { entry.loading = null; });
-    return entry.loading;
+    });
+    entry.loading = job;
+    bus.emit('index', { project, status: 'loading' });
+    return job;
 }
 
 export function refreshIndex(project) {

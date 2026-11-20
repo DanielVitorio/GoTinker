@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 var runnerMu sync.Mutex
@@ -29,7 +31,7 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, runResponse{ExitCode: -1, Error: "requisição inválida"})
 		return
 	}
-	project, err := validateProject(req.Project)
+	project, err := normalizeProject(req.Project)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, runResponse{ExitCode: -1, Error: err.Error()})
 		return
@@ -43,36 +45,49 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusRequestEntityTooLarge, runResponse{ExitCode: -1, Error: "código muito grande"})
 		return
 	}
-	php, err := phpBinary()
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, runResponse{ExitCode: -1, Error: err.Error()})
-		return
-	}
-	runnerPath, err := ensureRunner()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, runResponse{ExitCode: -1, Error: err.Error()})
-		return
-	}
-	envelope, _ := json.Marshal(map[string]any{
+	envelope := map[string]any{
 		"code":          makeEvaluable(code),
 		"vars":          nonNilMap(req.Variables),
 		"previewParams": nonNilMap(req.PreviewParams),
-	})
+	}
+	remote := isRemoteProject(project)
+	var php, runnerPath string
+	if !remote {
+		if php, err = phpBinary(); err != nil {
+			writeJSON(w, http.StatusBadRequest, runResponse{ExitCode: -1, Error: err.Error()})
+			return
+		}
+		if runnerPath, err = ensureRunner(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, runResponse{ExitCode: -1, Error: err.Error()})
+			return
+		}
+	}
 
 	timeout := time.Duration(envInt("GO_TINKER_TIMEOUT_SECONDS", 120)) * time.Second
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
 	started := time.Now()
-	cmd := exec.CommandContext(ctx, php, runnerPath, project)
-	configureHidden(cmd)
-	cmd.Dir = project
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "FORCE_COLOR=1", "COLUMNS=160")
-	cmd.Stdin = bytes.NewReader(envelope)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
+	var runErr error
+	if remote {
+		id, root, _ := parseRemoteProject(project)
+		envelope["project"] = root
+		out, errOut, err := sshExecPHP(ctx, id, remoteRunnerScript(envelope))
+		stdout.Write(out)
+		stderr.Write(errOut)
+		runErr = err
+	} else {
+		raw, _ := json.Marshal(envelope)
+		cmd := exec.CommandContext(ctx, php, runnerPath, project)
+		configureHidden(cmd)
+		cmd.Dir = project
+		cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "FORCE_COLOR=1", "COLUMNS=160")
+		cmd.Stdin = bytes.NewReader(raw)
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		runErr = cmd.Run()
+	}
 	duration := time.Since(started).Milliseconds()
 
 	if ctx.Err() == context.DeadlineExceeded {
@@ -158,9 +173,9 @@ func ensureRunner() (string, error) {
 }
 
 const phpRunner = `<?php
-$project = rtrim($argv[1] ?? '', "\\/");
-$input = json_decode((string) stream_get_contents(STDIN), true);
+$input = isset($gotinkerInput) && is_array($gotinkerInput) ? $gotinkerInput : json_decode((string) stream_get_contents(STDIN), true);
 if (!is_array($input)) $input = [];
+$project = rtrim((string) ($input['project'] ?? ($argv[1] ?? '')), "\\/");
 $code = (string) ($input['code'] ?? '');
 $previewParams = is_array($input['previewParams'] ?? null) ? $input['previewParams'] : [];
 $variables = [];
@@ -190,6 +205,7 @@ try {
     if ($project === '' || !is_file($project . DIRECTORY_SEPARATOR . 'artisan')) {
         throw new RuntimeException('Projeto Laravel inválido.');
     }
+    @chdir($project);
     require $project . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
     $app = require $project . DIRECTORY_SEPARATOR . 'bootstrap' . DIRECTORY_SEPARATOR . 'app.php';
     $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
@@ -499,6 +515,10 @@ func exitCode(err error) int {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode()
+	}
+	var sshExit *ssh.ExitError
+	if errors.As(err, &sshExit) {
+		return sshExit.ExitStatus()
 	}
 	return -1
 }

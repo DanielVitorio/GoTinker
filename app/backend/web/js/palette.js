@@ -31,6 +31,7 @@ function commands() {
         { label: t('toggleTerminal'), icon: 'terminal', hint: 'Ctrl+`', run: () => bus.emit('action:toggleTerminal') },
         { label: t('toggleSidebar'), icon: 'sidebar', hint: 'Ctrl+\\', run: () => bus.emit('action:toggleSidebar') },
         { label: t('toggleLayout'), icon: 'layoutSide', hint: 'Ctrl+Alt+L', run: () => bus.emit('action:toggleLayout') },
+        { label: t('toggleResponse'), icon: 'layoutStacked', hint: 'Ctrl+J', run: () => bus.emit('action:toggleResponse') },
         { label: t('import'), icon: 'upload', run: () => bus.emit('action:import') },
         { label: t('toggleTheme'), icon: document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun', run: () => bus.emit('action:toggleTheme') },
         { label: t('settings'), icon: 'settings', run: () => bus.emit('action:settings') },

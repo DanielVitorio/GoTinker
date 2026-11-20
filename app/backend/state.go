@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -30,9 +31,13 @@ func handleStateSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "estado inválido"})
 		return
 	}
+	stateEditMu.Lock()
 	saveState(preserveBackendKeys(raw))
+	stateEditMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "storage": storageMode(), "path": store.dbPath})
 }
+
+var stateEditMu sync.Mutex
 
 func preserveBackendKeys(raw []byte) []byte {
 	var incoming map[string]json.RawMessage

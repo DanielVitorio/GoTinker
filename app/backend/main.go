@@ -47,6 +47,9 @@ func main() {
 	mux.HandleFunc("/api/terminal/close", handleTerminalClose)
 	mux.HandleFunc("/api/terminal/shutdown", handleTerminalShutdown)
 	mux.HandleFunc("/api/ssh/connections", handleSSHConnections)
+	mux.HandleFunc("/api/ssh/connect", handleSSHConnect)
+	mux.HandleFunc("/api/ssh/trust", handleSSHTrust)
+	mux.HandleFunc("/api/ssh/fs", handleSSHFS)
 	mux.HandleFunc("/api/state/load", handleStateLoad)
 	mux.HandleFunc("/api/state/save", handleStateSave)
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {

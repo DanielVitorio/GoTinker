@@ -1,6 +1,6 @@
 module gotinker
 
-go 1.23.0
+go 1.26.0
 
 require (
 	github.com/aymanbagabas/go-pty v0.2.0
@@ -10,6 +10,6 @@ require (
 require (
 	github.com/creack/pty v1.1.15 // indirect
 	github.com/u-root/u-root v0.11.0 // indirect
-	golang.org/x/crypto v0.14.0 // indirect
-	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 )

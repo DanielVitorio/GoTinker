@@ -7,12 +7,14 @@ import { showMenu } from './ui.js';
 import { hasSelection, layoutEditor } from './editor.js';
 import { layoutResponse } from './response.js';
 import { createRichEditor, isRichEmpty } from './richtext.js';
+import { isRemote, projectLabel } from './remote.js';
 
 const els = {};
 let currentTab = null;
 let variablesTable = null;
 let descriptionEditor = null;
 let projectInfo = {};
+let responseOpen = true;
 
 export function initRequestView(container) {
     container.innerHTML = `
@@ -114,7 +116,7 @@ export function initRequestView(container) {
         const recents = state.recentProjects.filter(p => p !== currentTab?.project);
         showMenu([
             { header: t('recentProjects') },
-            ...(recents.length ? recents.map(p => ({ label: p, icon: 'laravel', action: () => bus.emit('action:setProject', p) })) : [{ label: t('noRecentProjects'), disabled: true }]),
+            ...(recents.length ? recents.map(p => ({ label: projectLabel(p), icon: isRemote(p) ? 'server' : 'laravel', action: () => bus.emit('action:setProject', p) })) : [{ label: t('noRecentProjects'), disabled: true }]),
             '-',
             { label: t('browseProject'), icon: 'folderOpen', action: () => bus.emit('action:pickProject') }
         ], els.projectBtn.parentElement, { minWidth: els.projectBtn.parentElement.offsetWidth });
@@ -156,10 +158,22 @@ function splitAxis() {
     return rect.height > rect.width ? 'x' : 'y';
 }
 
+export function isResponseOpen() {
+    return responseOpen;
+}
+
+export function setResponseOpen(open) {
+    responseOpen = !!open;
+    applyLayout();
+}
+
 export function applyLayout() {
     if (!els.reqSplit) return;
     const side = state.ui.layout === 'side';
     els.reqSplit.classList.toggle('side', side);
+    els.reqSplit.classList.toggle('res-closed', !responseOpen);
+    els.splitResizer.hidden = !responseOpen;
+    els.responsePane.hidden = !responseOpen;
     els.reqSplit.style.setProperty('--split', `${state.ui.split}%`);
     els.splitResizer.dataset.axis = side ? 'x' : 'y';
     requestAnimationFrame(() => {
@@ -179,9 +193,10 @@ export function setProjectInfo(project, info) {
 
 function renderProject(tab) {
     const project = tab.project;
-    els.projectText.textContent = project || t('selectProject');
+    els.projectText.textContent = project ? projectLabel(project) : t('selectProject');
     els.projectText.classList.toggle('placeholder', !project);
-    els.projectBtn.title = project || t('selectProject');
+    els.projectBtn.title = project ? projectLabel(project) : t('selectProject');
+    els.projectBtn.querySelector('.url-icon').innerHTML = icon(isRemote(project) ? 'server' : 'laravel');
     const info = projectInfo[String(project || '').toLowerCase()];
     els.projectBadges.innerHTML = '';
     if (project && info) {

@@ -32,6 +32,18 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	requested := strings.TrimSpace(r.URL.Query().Get("project"))
 	res := statusResponse{Project: requested, Storage: storageMode(), StoragePath: store.dbPath, DataDir: filepath.Dir(store.dbPath)}
+	if isRemoteProject(requested) {
+		if project, err := normalizeProject(requested); err != nil {
+			res.Error = err.Error()
+		} else {
+			res.Project = project
+			ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+			defer cancel()
+			remoteProjectStatus(ctx, project, &res)
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
 	php, phpErr := phpBinary()
 	if phpErr == nil {
 		res.PHP = phpVersion(php)
@@ -160,8 +172,13 @@ func handleFSList(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	sort.Slice(res.Entries, func(i, j int) bool {
-		a, b := res.Entries[i], res.Entries[j]
+	sortFSEntries(res.Entries)
+	writeJSON(w, http.StatusOK, res)
+}
+
+func sortFSEntries(entries []fsEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
 		if a.IsDir != b.IsDir {
 			return a.IsDir
 		}
@@ -170,7 +187,6 @@ func handleFSList(w http.ResponseWriter, r *http.Request) {
 		}
 		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 	})
-	writeJSON(w, http.StatusOK, res)
 }
 
 func handleLint(w http.ResponseWriter, r *http.Request) {
